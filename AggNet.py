@@ -52,7 +52,7 @@ class NetVLAD(nn.Module):
         self.conv = nn.Conv2d(vlad_dim, num_clusters, kernel_size=(1, 1), bias=vlad_v2)
         self.centroids = nn.Parameter(torch.rand(num_clusters, vlad_dim))
         self.fc = nn.Linear(num_clusters*dim, vlad_dim)
-        self.bn = nn.BatchNorm1d(num_clusters*dim)  # affine=False?,momentum=0.01?,vlad_dim if fc is applied
+        self.bn = nn.BatchNorm1d(num_clusters*dim)  # affine=False,track_running_stats=False?,momentum=0.01?,vlad_dim if fc is applied
         # self._init_params()
 
     # def _init_params(self):
@@ -120,7 +120,7 @@ class NetVLAD(nn.Module):
         vlad = F.normalize(vlad, p=2, dim=2)  # intra-normalization
         vlad = vlad.view(x.size(0), -1)  # flatten
         # vlad = self.fc(vlad)
-        # vlad = self.bn(vlad)
+        vlad = self.bn(vlad)
         vlad = F.normalize(vlad, p=2, dim=1)  # L2 normalize
         return vlad
 
