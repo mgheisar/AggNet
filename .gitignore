@@ -1,0 +1,15 @@
+ckpt/
+__pycache__/
+Models_weights/
+venv/
+.idea/
+*.npy
+*.npz
+*.json
+*.sh
+*.jpg
+*.png
+*.pdf
+*.json
+*.pkl
+*.txt
