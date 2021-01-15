@@ -6,9 +6,9 @@ lr : 0.001 # 0.001 learning rate of 0.001 for pre-training and 0.0001 for fine-t
 n_epoch : 200
 run_name : 'Run01'
 exp_name : 'vgg2'
-num_workers : 0
-n_save_epoch : 3
-n_classes : 50
+num_workers : 2
+n_save_epoch : 1
+n_classes : 32
 n_samples : 2
 n_batches_train : 0  # None
 n_batches_valid : 0  # None

@@ -166,20 +166,21 @@ def acc_authentication(model, logisticReg, H0_id, H0_data, target, n_classes, v_
     temp = np.arange(len(H0_id))
     temp[indices] = -1
     temp = temp[temp >= 0]
-    classes_ = np.random.choice(len(temp), n_classes, replace=False)
+    # classes_1 = np.random.choice(len(temp), n_classes, replace=False)
+    classes_ = torch.randperm(len(temp))[:n_classes]
     # H0_id = H0_id[temp[classes_]]
     H0_data = H0_data[temp[classes_]]
 
     temp = n_classes // n_batch_verif
     v_f0 = []
-    model.eval()
-    logisticReg.eval()
+    # model.eval()
+    # logisticReg.eval()
     with torch.no_grad():
         for i in range(n_batch_verif):
             v_f0.append(model(H0_data[i*temp:(i+1)*temp].to(device), m=1))  # single vector per query
     v_f0 = torch.stack(v_f0).flatten(start_dim=0, end_dim=1)
-    H0_claimed_group_id = np.random.randint(0, n_classes // m_set, size=n_classes).astype(np.int)
-
+    # H0_claimed_group_id1 = np.random.randint(0, n_classes // m_set, size=n_classes).astype(np.int)
+    H0_claimed_group_id = torch.randint(n_classes // m_set, (n_classes,)).numpy().astype(np.int)
     # D00 = -torch.norm(v_set[H0_claimed_group_id] - v_f0, p=2, dim=1).cpu()
     # D00_ = logisticReg(F.cosine_similarity(v_set[H0_claimed_group_id], v_f0).unsqueeze(-1)).squeeze()
     # D00 = F.sigmoid(D00_).cpu()

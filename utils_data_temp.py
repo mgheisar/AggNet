@@ -21,14 +21,15 @@ class BalanceBatchSampler(BatchSampler):
                 self.labels = dataset.targets  # labels
             except AttributeError:
                 self.labels = [img[1]for img in dataset.imgs]
-        labels_array = np.array(list(self.labels))
-        self.labels_set = list(set(labels_array))
-        self.labels_set = [label for label in self.labels_set if len(np.where(labels_array == label)[0]) >= n_samples]
-        self.labels_to_indices = {label: np.where(labels_array == label)[0] for label in self.labels_set if len(np.where(labels_array == label)[0]) >= n_samples}
+        self.labels_array = np.array(list(self.labels))
+        self.labels_set = list(set(self.labels_array))
+        self.labels_set = [label for label in self.labels_set if len(np.where(self.labels_array == label)[0]) >= n_samples]
+        self.labels_to_indices = {label: np.where(self.labels_array == label)[0]
+                                  for label in self.labels_set if len(np.where(self.labels_array == label)
+                                                                      [0]) >= n_samples}
         for l in self.labels_set:
             np.random.shuffle(self.labels_to_indices[l])
         self.used_label_indices_count = {label: 0 for label in self.labels_set}
-        self.count = 0
         self.n_classes = n_classes
         self.n_samples = n_samples
         self.batch_size = n_classes * n_samples
@@ -38,42 +39,37 @@ class BalanceBatchSampler(BatchSampler):
         if self.n_batches_epoch is None:
             self.n_batches_epoch = self.new_dataset_size // self.batch_size  # len(self.dataset)
         print('n_batches_epoch', self.n_batches_epoch)
-
-    def __iter__(self):
-        self.used_label_indices_count = {label: 0 for label in self.labels_set}  # (3)
-        # (3) To have exactly the same images of each identity in all epochs
-        self.count = 0
-        unselected_classes = self.labels_set.copy()
-        n_classes = self.n_classes
-        np.random.seed(0)  # (1)To have epochs with the same batch of identities
+        self.batch_indices = []
+        self.unselected_classes = self.labels_set.copy()
         for i in range(self.n_batches_epoch):
-            # classes = np.random.choice(self.labels_set, n_classes, replace=False)
-            # # classes = self.labels_set[int(self.count / self.n_classes):int(self.count / self.n_classes + self.n_classes)]
-            if len(unselected_classes) < n_classes:
+            if len(self.unselected_classes) < self.n_classes:
                 # Making sure that one epoch will used all the classes
                 np.random.seed(0)  # (2)When number of train identities is dividable to the n_classes
                 # To assign only particular identities to same group(to not change groups in different batches in the same epoch)
-                classes1 = unselected_classes
-                unselected_classes1 = self.labels_set.copy()
-                [unselected_classes1.remove(element) for element in classes1]
-                n_classes2 = n_classes - len(classes1)
-                classes2 = np.random.choice(unselected_classes1, n_classes2, replace=False)
-                unselected_classes = self.labels_set.copy()
-                [unselected_classes.remove(element) for element in classes2]
-                classes = classes1 + list(classes2)
-
+                self.classes1 = self.unselected_classes.copy()
+                self.unselected_classes1 = self.labels_set.copy()
+                [self.unselected_classes1.remove(element) for element in self.classes1]
+                self.n_classes2 = self.n_classes - len(self.classes1)
+                self.classes2 = np.random.choice(self.unselected_classes1, self.n_classes2, replace=False)
+                self.unselected_classes = self.labels_set.copy()
+                [self.unselected_classes.remove(element) for element in self.classes2]
             else:
-                classes = np.random.choice(unselected_classes, n_classes, replace=False)
-                [unselected_classes.remove(element) for element in classes]
+                self.classes = np.random.choice(self.unselected_classes, self.n_classes, replace=False)
+                [self.unselected_classes.remove(element) for element in self.classes]
             indices = []
-            for class_ in classes:
+            for class_ in self.classes:
                 indices.extend(self.labels_to_indices[class_][self.used_label_indices_count[class_]:
                                                               self.used_label_indices_count[class_] + self.n_samples])
                 self.used_label_indices_count[class_] += self.n_samples
                 if self.used_label_indices_count[class_] + self.n_samples > len(self.labels_to_indices[class_]):
                     np.random.shuffle(self.labels_to_indices[class_])
                     self.used_label_indices_count[class_] = 0
-            yield indices
+            self.batch_indices.append(indices)
+
+    def __iter__(self):
+        self.count = 0
+        for i in range(self.n_batches_epoch):
+            yield self.batch_indices[i]
             self.count += self.batch_size
 
     def __len__(self):
@@ -165,4 +161,3 @@ class Reporter(object):
         self.selected_ckpt = ckpt_file
 
         return self
-
