@@ -1,20 +1,11 @@
-# --rn="Run0" --loss="loss_auc_max_v1" --start=1 --m=2 --n_b_train=6 --n_b_valid=4 --n_batch_verif=2 --n_epoch=4 --u_vgg=16
 import os
 import torchvision
 import torch
-from AggNet import SetNet, get_clusters, LogisticReg, acc_authentication
 from utils_data import BalanceBatchSampler, Reporter
 import numpy as np
 import yaml
 import argparse
-from checkpoint import CheckPoint
-from history import History
-import time
-import dill
 from vgg_face2 import VGG_Faces2
-from itertools import chain
-import h5py
-import copy
 
 torch.manual_seed(0)
 if __name__ == '__main__':
@@ -32,7 +23,6 @@ if __name__ == '__main__':
     model_type = args_list['model_type']
     n_epoch = args_list['n_epoch']
     n_classes = args_list['n_classes']
-    n_classes = 4
     n_samples = args_list['n_samples']
     m_set = args_list['m_set']
     lr = args_list['lr']
@@ -139,296 +129,54 @@ if __name__ == '__main__':
     batch_size = n_classes * n_samples
     batch_sampler_t = BalanceBatchSampler(dataset=dataset_train, n_classes=n_classes, n_samples=n_samples,
                                         n_batches_epoch=n_batches_train)
-    train_loader = torch.utils.data.DataLoader(dataset_train, batch_sampler=batch_sampler_t, num_workers=num_workers)
+    train_loader = torch.utils.data.DataLoader(dataset_train, batch_sampler=batch_sampler_t,
+                                               num_workers=num_workers, pin_memory=True)
+    import time
+    import multiprocessing
+    use_cuda = torch.cuda.is_available()
+    core_number = multiprocessing.cpu_count()
+    batch_size = 64
+    best_num_worker = [0, 0]
+    best_time = [99999999, 99999999]
+    print('cpu_count =', core_number)
 
-    batch_sampler_v = BalanceBatchSampler(dataset=dataset_validation, n_classes=n_classes, n_samples=n_samples,
-                                        n_batches_epoch=n_batches_valid)
-    validation_loader = torch.utils.data.DataLoader(dataset_validation, batch_sampler=batch_sampler_v,
-                                                    num_workers=num_workers)
-    batch_sampler_H0t = BalanceBatchSampler(dataset=dataset_train, n_classes=n_classes * 2, n_samples=1,
-                                        n_batches_epoch=n_batch_verif)
-    H0_loader_train = torch.utils.data.DataLoader(dataset_train, batch_sampler=batch_sampler_H0t,
-                                            num_workers=num_workers)
-    batch_sampler_H0v = BalanceBatchSampler(dataset=dataset_validation, n_classes=n_classes * 2, n_samples=1,
-                                        n_batches_epoch=n_batch_verif)
-    H0_loader_validation = torch.utils.data.DataLoader(dataset_validation, batch_sampler=batch_sampler_H0v,
-                                                  num_workers=num_workers)
-    H0_id_t, H0_data_t, H0_id_v, H0_data_v = [], [], [], []
-    dataloader_H0_t = iter(H0_loader_train)
-    dataloader_H0_v = iter(H0_loader_validation)
-    for i in range(n_batch_verif):
-        data = next(dataloader_H0_t)
-        H0_id_t.append(data[1])
-        H0_data_t.append(data[0])
-
-        data = next(dataloader_H0_v)
-        H0_id_v.append(data[1])
-        H0_data_v.append(data[0])
-
-    #  --------------------------------------------------------------------------------------
-    # Model Definitions
-    #  --------------------------------------------------------------------------------------
-    model = SetNet(base_model_architecture=model_type, num_clusters=num_clusters, vlad_dim=vlad_dim,
-                   vlad_v2=vlad_v2)
-    logisticReg = LogisticReg()
-    # Initialize NetVLAD
-    if clustering:
-        get_clusters(dataset_train, num_clusters, model_type=model_type, batch_size=64, n_batches=50000)
-    if start:
-        initcache = os.path.join(ROOT_DIR, 'centroids',
-                                 model_type + '_' + '_' + str(num_clusters) + '_desc_cen.hdf5')
-        with h5py.File(initcache, mode='r') as h5:
-            clsts = h5.get("centroids")[...]
-            traindescs = h5.get("descriptors")[...]
-            model.net_vlad.init_params(clsts, traindescs)
-            del clsts, traindescs
-
-    # for param in model.base_model.parameters():  # freeze base model
-    #     param.requires_grad = False
-    model.to(device)
-    logisticReg.to(device)
-    optimizer_model = torch.optim.SGD(chain(model.parameters(), logisticReg.parameters()),
-                                      lr=lr, momentum=0.9, weight_decay=0.001)  # weight_decay=2e-4
-    model.train()
-    logisticReg.train()
-    #  --------------------------------------------------------------------------------------
-    #  Resume training if start is False
-    #  --------------------------------------------------------------------------------------
-    if not start:
-        reporter = Reporter(ckpt_root=os.path.join(ROOT_DIR, 'ckpt'),
-                            exp=exp_name, monitor='acc')
-        last_model_filename = reporter.select_last(run=run_name).selected_ckpt
-        last_epoch = int(reporter.select_last(run=run_name).last_epoch)
-        loss0 = reporter.select_last(run=run_name).last_loss
-        loss0 = float(loss0[:-4])
-        model.load_state_dict(torch.load(last_model_filename)['model_state_dict'])
-        reporter = Reporter(ckpt_root=os.path.join(ROOT_DIR, 'ckpt'),
-                            exp=exp_name, monitor='acc')
-        last_model_filename = reporter.select_last(run=run_name + '_lr').selected_ckpt
-        logisticReg.load_state_dict(torch.load(last_model_filename)['model_state_dict'])
-    else:
-        last_epoch = -1
-        loss0 = 0
-    # optimizer_model.load_state_dict(...)
-    # lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer_model, mode="min",
-    #           factor=0.5, patience=2, verbose=True, min_lr=1e-6, threshold=0.001, threshold_mode='abs')
-    path_ckpt = '{}/ckpt/{}'.format(ROOT_DIR, exp_name)
-    # learning checkpointer
-    ckpter = CheckPoint(model=model, optimizer=optimizer_model, path=path_ckpt,
-                        prefix=run_name, interval=1, save_num=n_save_epoch, loss0=loss0)
-    ckpter_lr = CheckPoint(model=logisticReg, optimizer=optimizer_model, path=path_ckpt,
-                           prefix=run_name + '_lr', interval=1, save_num=n_save_epoch, loss0=loss0)
-    train_hist = History(name='train_hist' + run_name)
-    validation_hist = History(name='validation_hist' + run_name)
-    # if start:
-    #     # ---------  Training logs before start training -----------------
-    #     # model.eval()
-    #     # logisticReg.eval()
-    #     with torch.no_grad():
-    #         tot_loss, tot_acc = 0, 0
-    #         n_batches = len(train_loader)
-    #         Ptp01, Ptp05 = np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif)
-    #         vs, vf, tg = [], [], []
-    #         idx = -1
-    #         for batch_idx, (data, target, img_file, class_id) in enumerate(train_loader):
-    #             data_set = data[np.arange(0, batch_size, n_samples)].to(device)
-    #             data_query = data[np.arange(1, batch_size, n_samples)].to(device)
-    #             v_set = model(data_set, m=m_set)  # single vector per set
-    #             v_f = model(data_query, m=1)  # single vector per query
-    #             Sim = torch.mm(v_set, v_f.t())
-    #             output = logisticReg(Sim.unsqueeze(-1)).squeeze()
-    #             loss_outputs, accuracy = loss_fn(output, len(v_f), m_set)
-    #             tot_acc += accuracy
-    #             tot_loss += loss_outputs
-    #
-    #             vs.append(v_set)
-    #             vf.append(v_f)
-    #             tg.append(target)
-    #             if (batch_idx + 1) % n_batch_verif == 0:
-    #                 idx += 1
-    #                 vs = torch.stack(vs).flatten(start_dim=0, end_dim=1)
-    #                 vf = torch.stack(vf).flatten(start_dim=0, end_dim=1)
-    #                 tg = torch.stack(tg).flatten(start_dim=0, end_dim=1)
-    #                 Ptp01[idx], Ptp05[idx] = acc_authentication(model, logisticReg, H0_id_t, H0_data_t,
-    #                                                               tg, vf.size(0), vs, vf, m_set, n_batch_verif)
-    #                 vs, vf, tg = [], [], []
-    #
-    #         avg_loss = tot_loss / n_batches
-    #         avg_acc = tot_acc / n_batches
-    #     print('Training log before start training--->avg_loss: %.3f' % avg_loss,
-    #           'avg_acc: %.3f' % avg_acc, ' ptp01: %.3f' % np.mean(Ptp01), 'ptp05: %.3f' % np.mean(Ptp05))
-    #     train_logs = {'loss': avg_loss, 'acc': avg_acc, 'ptp01': np.mean(Ptp01), 'ptp05': np.mean(Ptp05)}
-    #     train_hist.add(logs=train_logs, epoch=0)
-    #     # ---------  Validation logs before start training -----------------
-    #     # model.eval()
-    #     # logisticReg.eval()
-    #     tot_loss, tot_acc = 0, 0
-    #     n_batches = len(validation_loader)
-    #     Ptp01, Ptp05 = np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif)
-    #     vs, vf, tg = [], [], []
-    #     idx = -1
-    #     with torch.no_grad():
-    #         for batch_idx, (data, target, img_file, class_id) in enumerate(validation_loader):
-    #             data_set = data[np.arange(0, batch_size, n_samples)].to(device)
-    #             data_query = data[np.arange(1, batch_size, n_samples)].to(device)
-    #             v_set = model(data_set, m=m_set)  # single vector per set
-    #             v_f = model(data_query, m=1)  # single vector per query
-    #             Sim = torch.mm(v_set, v_f.t())
-    #             # output = Sim
-    #             output = logisticReg(Sim.unsqueeze(-1)).squeeze()
-    #             loss_outputs, accuracy = loss_fn(output, len(v_f), m_set)
-    #             tot_acc += accuracy
-    #             tot_loss += loss_outputs
-    #
-    #             vs.append(v_set)
-    #             vf.append(v_f)
-    #             tg.append(target)
-    #             if (batch_idx + 1) % n_batch_verif == 0:
-    #                 idx += 1
-    #                 vs = torch.stack(vs).flatten(start_dim=0, end_dim=1)
-    #                 vf = torch.stack(vf).flatten(start_dim=0, end_dim=1)
-    #                 tg = torch.stack(tg).flatten(start_dim=0, end_dim=1)
-    #
-    #                 Ptp01[idx], Ptp05[idx] = acc_authentication(model, logisticReg, H0_id_v, H0_data_v,
-    #                                                                   tg, vf.size(0), vs, vf, m_set, n_batch_verif)
-    #                 vs, vf, tg = [], [], []
-    #     avg_loss = tot_loss / n_batches
-    #     avg_acc = tot_acc / n_batches
-    #     print('Validation log before start training--->avg_loss: %.3f' % avg_loss, 'avg_acc: %.3f' % avg_acc,
-    #           ' ptp01: %.3f' % np.mean(Ptp01), 'ptp05: %.3f' % np.mean(Ptp05))
-    #     validation_logs = {'loss': avg_loss, 'acc': avg_acc, 'ptp01': np.mean(Ptp01),
-    #                        'ptp05': np.mean(Ptp05)}
-    #     validation_hist.add(logs=validation_logs, epoch=0)
-    # else:
-    #     train_hist = dill.load(open(ROOT_DIR + "/ckpt/" + exp_name + train_hist.name + ".pickle", "rb"))
-    #     validation_hist = dill.load(open(ROOT_DIR + "/ckpt/" + exp_name + validation_hist.name + ".pickle", "rb"))
-    #  --------------------------------------------------------------------------------------
-    # Training
-    #  --------------------------------------------------------------------------------------
-    for epoch in range(last_epoch + 1, n_epoch):
-        print('Training epoch', epoch + 1)
-        tot_loss, tot_acc = 0, 0
-        n_batches = len(train_loader)
-        epoch_time_start = time.time()
-        model.train()
-        logisticReg.train()
-        for batch_idx, (data, target, img_file, class_id) in enumerate(train_loader):
-            print(img_file)
-            data_set = data[np.arange(0, batch_size, n_samples)].to(device)
-            data_query = data[np.arange(1, batch_size, n_samples)].to(device)
-            v_set = model(data_set, m=m_set)  # single vector per set
-            v_f = model(data_query, m=1)  # single vector per query
-            Sim = torch.mm(v_set, v_f.t())  # torch.mm(v_set, v_f.T)
-            output = logisticReg(Sim.unsqueeze(-1)).squeeze()
-            loss_outputs, accuracy = loss_fn(output, len(v_f), m_set)
-            tot_acc += accuracy
-            tot_loss += loss_outputs
-            optimizer_model.zero_grad()
-            # print('device:', loss_outputs.device, 'type:', loss_outputs.dtype, 'value:', loss_outputs)
-            loss_outputs.backward()
-            optimizer_model.step()
-        avg_loss_train = tot_loss / n_batches
-        avg_acc_train = tot_acc / n_batches
-        #  --------------------------------------------------------------------------------------
-        # Validation History
-        #  --------------------------------------------------------------------------------------
-        # ---------  Validation logs -----------------
-        print('Computing Validation logs')
-        # model.eval()
-        # logisticReg.eval()
-        tot_loss, tot_acc = 0, 0
-        n_batches = len(validation_loader)
-        Ptp01, Ptp05 = np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif)
-        vs, vf, tg = [], [], []
-        idx = -1
-        with torch.no_grad():
-            for batch_idx, (data, target, img_file, class_id) in enumerate(validation_loader):
-                print(img_file)
-                data_set = data[np.arange(0, batch_size, n_samples)].to(device)
-                data_query = data[np.arange(1, batch_size, n_samples)].to(device)
-                v_set = model(data_set, m=m_set)  # single vector per set
-                v_f = model(data_query, m=1)  # single vector per query
-                Sim = torch.mm(v_set, v_f.t())
-                output = logisticReg(Sim.unsqueeze(-1)).squeeze()
-                loss_outputs, accuracy = loss_fn(output, len(v_f), m_set)
-                tot_acc += accuracy
-                tot_loss += loss_outputs
-
-                vs.append(v_set)
-                vf.append(v_f)
-                tg.append(target)
-                if (batch_idx + 1) % n_batch_verif == 0:
-                    idx += 1
-                    vs = torch.stack(vs).flatten(start_dim=0, end_dim=1)
-                    vf = torch.stack(vf).flatten(start_dim=0, end_dim=1)
-                    tg = torch.stack(tg).flatten(start_dim=0, end_dim=1)
-                    Ptp01[idx], Ptp05[idx] = acc_authentication(model, logisticReg, H0_id_v, H0_data_v,
-                                                                  tg, vf.size(0), vs, vf, m_set, n_batch_verif)
-                    vs, vf, tg = [], [], []
-        avg_loss = tot_loss / n_batches
-        avg_acc = tot_acc / n_batches
-        print('avg_loss: %.3f' % avg_loss, 'avg_acc: %.3f' % avg_acc, ' --->ptp01: %.3f' % np.mean(Ptp01),
-              'ptp05: %.3f' % np.mean(Ptp05))
-        # validation_logs = {'loss': avg_loss, 'acc': avg_acc, 'ptp01': np.mean(Ptp01),
-        #                    'ptp05': np.mean(Ptp05)}
-        # validation_hist.add(logs=validation_logs, epoch=epoch + 1)
-        if (epoch+1) % 1 == 0:
-            print('Computing Training logs')
-            # model.eval()
-            # logisticReg.eval()
-            tot_loss, tot_acc = 0, 0
-            n_batches = len(train_loader)
-            Ptp01, Ptp05 = np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif)
-            vs, vf, tg = [], [], []
-            idx = -1
-            with torch.no_grad():
+    def loading_time(num_workers, pin_memory):
+            kwargs = {'num_workers': num_workers, 'pin_memory': pin_memory} if use_cuda else {}
+            train_loader = torch.utils.data.DataLoader(dataset_train, batch_sampler=batch_sampler_t,
+                                                       **kwargs)
+            # start = time.time()
+            end = 0
+            for epoch in range(4):
                 for batch_idx, (data, target, img_file, class_id) in enumerate(train_loader):
-                    print(img_file)
-                    data_set = data[np.arange(0, batch_size, n_samples)].to(device)
-                    data_query = data[np.arange(1, batch_size, n_samples)].to(device)
-                    v_set = model(data_set, m=m_set)  # single vector per set
-                    v_f = model(data_query, m=1)  # single vector per query
+                    if batch_idx == 1:
+                        start = time.time()
+                    if batch_idx == 100:
+                        end += time.time() - start
+                        break
+                    pass
 
-                    Sim = torch.mm(v_set, v_f.t())
-                    output = logisticReg(Sim.unsqueeze(-1)).squeeze()
-                    loss_outputs, accuracy = loss_fn(output, len(v_f), m_set)
-                    tot_acc += accuracy
-                    tot_loss += loss_outputs
+            print("  Used {} second with num_workers = {}".format(end, num_workers))
+            return end-start
+    for pin_memory in [False, True]:
+            print("While pin_memory =", pin_memory)
+            for num_workers in range(0, core_number*2+1, 4):
+                current_time = loading_time(num_workers, pin_memory)
+                if current_time < best_time[pin_memory]:
+                    best_time[pin_memory] = current_time
+                    best_num_worker[pin_memory] = num_workers
+                else: # assuming its a convex function
+                    if best_num_worker[pin_memory] == 0:
+                        the_range = []
+                    else:
+                        the_range = list(range(best_num_worker[pin_memory] - 3, best_num_worker[pin_memory]))
+                    for num_workers in (the_range + list(range(best_num_worker[pin_memory] + 1,best_num_worker[pin_memory] + 4))):
+                        current_time = loading_time(num_workers, pin_memory)
+                        if current_time < best_time[pin_memory]:
+                            best_time[pin_memory] = current_time
+                            best_num_worker[pin_memory] = num_workers
+                    break
+    if best_time[0] < best_time[1]:
+            print("Best num_workers =", best_num_worker[0], "with pin_memory = False")
+    else:
+            print("Best num_workers =", best_num_worker[1], "with pin_memory = True")
 
-                    vs.append(v_set)
-                    vf.append(v_f)
-                    tg.append(target)
-                    if (batch_idx + 1) % n_batch_verif == 0:
-                        idx += 1
-                        vs = torch.stack(vs).flatten(start_dim=0, end_dim=1)
-                        vf = torch.stack(vf).flatten(start_dim=0, end_dim=1)
-                        tg = torch.stack(tg).flatten(start_dim=0, end_dim=1)
-                        Ptp01[idx], Ptp05[idx] = acc_authentication(model, logisticReg, H0_id_t, H0_data_t,
-                                                                  tg, vf.size(0), vs, vf, m_set, n_batch_verif)
-                        vs, vf, tg = [], [], []
-            avg_loss = tot_loss / n_batches
-            avg_acc = tot_acc / n_batches
-            print('avg_loss: %.3f' % avg_loss, 'avg_acc: %.3f' % avg_acc, ' --->ptp01: %.3f' % np.mean(Ptp01),
-                  'ptp05: %.3f' % np.mean(Ptp05))
-            train_logs = {'loss': avg_loss, 'acc': avg_acc, 'ptp01': np.mean(Ptp01),
-                          'ptp05': np.mean(Ptp05)}
-            train_hist.add(logs=train_logs, epoch=epoch + 1)
-
-        epoch_time_end = time.time()
-        # if epoch > 0:
-        #     ckpter.last_delete_and_save(epoch=epoch, monitor='acc', loss_acc=validation_logs)
-        #     ckpter_lr.last_delete_and_save(epoch=epoch, monitor='acc', loss_acc=validation_logs)
-        #
-        # ckpter.check_on(epoch=epoch, monitor='acc', loss_acc=validation_logs)
-        # ckpter_lr.check_on(epoch=epoch, monitor='acc', loss_acc=validation_logs)
-        print(
-            'Epoch {}:\tAverage Loss: {:.3f}\tAverage Accuracy: {:.3f}\tEpoch Time: {:.3f} hours'.format(
-                epoch + 1,
-                avg_loss_train, avg_acc_train,
-                (epoch_time_end - epoch_time_start) / 3600,
-            )
-        )
-        # # # if lr_scheduler is not None:
-        # # #     lr_scheduler.step(validation_logs['loss'])
-        # dill.dump(train_hist, file=open(ROOT_DIR + "/ckpt/" + exp_name + train_hist.name + ".pickle", "wb"))
-        # dill.dump(validation_hist, file=open(ROOT_DIR + "/ckpt/" + exp_name + validation_hist.name + ".pickle", "wb"))

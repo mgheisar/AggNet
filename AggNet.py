@@ -25,13 +25,13 @@ ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 class NetVLAD(nn.Module):
     """NetVLAD layer implementation"""
 
-    def __init__(self, num_clusters=8, dim=128, vlad_dim=128, vlad_v2=False,
+    def __init__(self, num_clusters=8, dim=128, vset_dim=128, vlad_v2=False,
                  normalize_input=True):
         """
         Args:
             num_clusters : int
                 The number of clusters
-            vlad_dim : int
+            vset_dim : int
                 Dimension of final vlad vector
             dim : int
                 Dimension of descriptors
@@ -44,15 +44,15 @@ class NetVLAD(nn.Module):
         """
         super(NetVLAD, self).__init__()
         self.num_clusters = num_clusters
-        self.vlad_dim = vlad_dim
+        self.vset_dim = vset_dim
         self.dim = dim
         self.vlad_v2 = vlad_v2
         self.alpha = 0
         self.normalize_input = normalize_input
-        self.conv = nn.Conv2d(vlad_dim, num_clusters, kernel_size=(1, 1), bias=vlad_v2)
-        self.centroids = nn.Parameter(torch.rand(num_clusters, vlad_dim))
-        self.fc = nn.Linear(num_clusters*dim, vlad_dim)
-        self.bn = nn.BatchNorm1d(num_clusters*dim)  # affine=False,track_running_stats=False?,momentum=0.01?,vlad_dim if fc is applied
+        self.conv = nn.Conv2d(vset_dim, num_clusters, kernel_size=(1, 1), bias=vlad_v2)
+        self.centroids = nn.Parameter(torch.rand(num_clusters, vset_dim))
+        self.fc = nn.Linear(num_clusters*dim, vset_dim)
+        self.bn = nn.BatchNorm1d(num_clusters*dim)  # affine=False,track_running_stats=False?,momentum=0.01?,vset_dim if fc is applied
         # self._init_params()
 
     # def _init_params(self):
@@ -125,8 +125,35 @@ class NetVLAD(nn.Module):
         return vlad
 
 
+class GeM(nn.Module):
+    def __init__(self, p=3, eps=1e-6, normalize_input=True, dim=128):
+        super(GeM, self).__init__()
+        self.p = nn.Parameter(torch.ones(1) * p)
+        self.eps = eps
+        self.normalize_input = normalize_input
+        self.bn = nn.BatchNorm1d(dim)
+
+    def forward(self, x):
+        if self.normalize_input:
+            x = F.normalize(x, p=2, dim=1)  # across descriptor dim
+        gem_vec = self.gem(x, p=self.p, eps=self.eps)
+        gem_vec = gem_vec.view(x.size(0), -1)  # flatten
+        gem_vec = self.bn(gem_vec)
+        gem_vec = F.normalize(gem_vec, p=2, dim=1)  # L2 normalize
+        return gem_vec
+
+    @staticmethod
+    def gem(x, p, eps):
+        return F.adaptive_avg_pool2d(x.clamp(min=eps).pow(p), (1, 1)).pow(1. / p)
+
+    def __repr__(self):
+        return self.__class__.__name__ + '(' + 'p=' + '{:.4f}'.format(self.p.data.tolist()[0]) + \
+               ', ' + 'eps=' + str(self.eps) + ')'
+
+
 class SetNet(nn.Module):
-    def __init__(self, base_model_architecture="resnet50_128", num_clusters=8, vlad_dim=128, vlad_v2=False):
+    def __init__(self, base_model_architecture="resnet50_128", num_clusters=8, vset_dim=128,
+                 vlad_v2=False, pooling='vlad'):
         super(SetNet, self).__init__()
 
         if base_model_architecture == "resnet50_128":
@@ -141,11 +168,15 @@ class SetNet(nn.Module):
         elif base_model_architecture == "senet50_2048":
             self.base_model = senet50_ft(ROOT_DIR + '/Models_weights/senet50_ft_dims_2048.pth')
             dim = 2048
-        self.net_vlad = NetVLAD(num_clusters=num_clusters, dim=dim, vlad_dim=vlad_dim,
+        self.pooling = pooling
+        if self.pooling == 'vlad':
+            self.net_vlad = NetVLAD(num_clusters=num_clusters, dim=dim, vset_dim=vset_dim,
                                 vlad_v2=vlad_v2, normalize_input=True)
+        elif self.pooling == 'gem':
+            self.gem_pooling = GeM(p=3, eps=1e-6)
         self.bn_x = nn.BatchNorm1d(dim, affine=False)
 
-    def forward(self, x, m):
+    def forward(self, x, m, pooling='vlad'):
         x, x_pre_flatten = self.base_model(x)
         x = x.view(int(x.shape[0] / m), m, x.shape[1]).unsqueeze(-1)
         x = x.permute(0, 2, 1, 3)
@@ -154,7 +185,10 @@ class SetNet(nn.Module):
         # x = F.normalize(x, p=2, dim=1)  # L2 normalize
         # v_set = torch.mean(x, dim=2)
         # v_set = F.normalize(v_set, p=2, dim=1).squeeze()
-        v_set = self.net_vlad(x)
+        if self.pooling == 'vlad':
+            v_set = self.net_vlad(x)
+        elif self.pooling == 'gem':
+            v_set = self.gem_pooling(x)
         return v_set
 
 

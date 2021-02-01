@@ -13,6 +13,7 @@ import dill
 from vgg_face2 import VGG_Faces2
 from itertools import chain
 import h5py
+import multiprocessing
 
 torch.manual_seed(0)
 if __name__ == '__main__':
@@ -21,6 +22,8 @@ if __name__ == '__main__':
     # print(ROOT_DIR)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(device)
+    core_number = multiprocessing.cpu_count()
+    print('core number:', core_number)
     #  --------------------------------------------------------------------------------------
     # Arguments
     #  --------------------------------------------------------------------------------------
@@ -81,6 +84,8 @@ if __name__ == '__main__':
                         help='learning rate')
     parser.add_argument('--pooling', '--pooling', type=str, default='vlad',
                         help='pooling method (default: "vlad")')
+    parser.add_argument('--n_classes', '--n_classes', type=int, default=n_classes,
+                        help='Number of classes in batch (default: 32)')
 
     args = parser.parse_args()
     model_type = args.model_type
@@ -100,6 +105,7 @@ if __name__ == '__main__':
     lossFun = args.loss
     lr = args.lr
     pooling = args.pooling
+    n_classes = args.n_classes
 
     if lossFun == 'loss_bc':
         from loss import loss_bc as loss_fn
@@ -317,31 +323,49 @@ if __name__ == '__main__':
         epoch_time_start = time.time()
         model.train()
         logisticReg.train()
+        t0 = time.time()
         for batch_idx, (data, target, img_file, class_id) in enumerate(train_loader):
-            data_set = data[np.arange(0, batch_size, n_samples)].to(device)
-            data_query = data[np.arange(1, batch_size, n_samples)].to(device)
-            # t1 = time.time()
-            v_set = model(data_set, m=m_set)  # single vector per set
-            # print('t1', time.time()-t1)
-            v_f = model(data_query, m=1)  # single vector per query
-            Sim = torch.mm(v_set, v_f.t())  # torch.mm(v_set, v_f.T)
-            output = logisticReg(Sim.unsqueeze(-1)).squeeze()
-            # t1 = time.time()
-            loss_outputs, accuracy = loss_fn(output, len(v_f), m_set)
-            # print('t5', time.time() - t1)
-            tot_acc += accuracy
-            tot_loss += loss_outputs
-            optimizer_model.zero_grad()
-            # print('device:', loss_outputs.device, 'type:', loss_outputs.dtype, 'value:', loss_outputs)
-            # t1 = time.time()
-            loss_outputs.backward()
-            # print('t7', time.time() - t1)
-            # t1 = time.time()
-            optimizer_model.step()
-            # print('t8', time.time() - t1)
+            if batch_idx < 20:
+                print('t0', time.time() - t0)
+            if batch_idx % 4 == 0:
+                optimizer_model.zero_grad()
+                accumulated_step_i = 0
+                scaled_loss = 0
+                scaled_acc = 0
+            if accumulated_step_i < 4:
+                accumulated_step_i += 1
+                data_set = data[np.arange(0, batch_size, n_samples)].to(device)
+                data_query = data[np.arange(1, batch_size, n_samples)].to(device)
+                t1 = time.time()
+                v_set = model(data_set, m=m_set)  # single vector per set
+                if batch_idx < 20:
+                    print('t1', time.time() - t1)
+                v_f = model(data_query, m=1)  # single vector per query
+                Sim = torch.mm(v_set, v_f.t())  # torch.mm(v_set, v_f.T)
+                output = logisticReg(Sim.unsqueeze(-1)).squeeze()
+                t1 = time.time()
+                loss_outputs, accuracy = loss_fn(output, len(v_f), m_set)
+                if batch_idx < 20:
+                    print('t2', time.time() - t1)
+                scaled_acc += accuracy
+                scaled_loss += loss_outputs
+
+                # optimizer_model.zero_grad()
+                # print('device:', loss_outputs.device, 'type:', loss_outputs.dtype, 'value:', loss_outputs)
+                t1 = time.time()
+                loss_outputs.backward()
+                if batch_idx < 20:
+                    print('t3', time.time() - t1)
+            if accumulated_step_i == 4:
+                t1 = time.time()
+                optimizer_model.step()
+                if batch_idx < 20:
+                    print('t4', time.time() - t1)
+                tot_acc += scaled_acc / 4
+                tot_loss += scaled_loss / 4
         print('t_train', time.time() - t11)
-        avg_loss_train = tot_loss / n_batches
-        avg_acc_train = tot_acc / n_batches
+        avg_loss_train = tot_loss / (n_batches // 4)
+        avg_acc_train = tot_acc / (n_batches // 4)
         #  --------------------------------------------------------------------------------------
         # Validation History
         #  --------------------------------------------------------------------------------------

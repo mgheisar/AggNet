@@ -13,8 +13,7 @@ import dill
 from vgg_face2 import VGG_Faces2
 from itertools import chain
 import h5py
-import copy
-
+import multiprocessing
 
 torch.manual_seed(0)
 if __name__ == '__main__':
@@ -23,6 +22,8 @@ if __name__ == '__main__':
     # print(ROOT_DIR)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(device)
+    core_number = multiprocessing.cpu_count()
+    print('core number:', core_number)
     #  --------------------------------------------------------------------------------------
     # Arguments
     #  --------------------------------------------------------------------------------------
@@ -81,6 +82,10 @@ if __name__ == '__main__':
                         help='loss function (default: "loss_bc")')
     parser.add_argument('--lr', '--lr', type=float, default=lr,
                         help='learning rate')
+    parser.add_argument('--pooling', '--pooling', type=str, default='vlad',
+                        help='pooling method (default: "vlad")')
+    parser.add_argument('--n_classes', '--n_classes', type=int, default=n_classes,
+                        help='Number of classes in batch (default: 32)')
 
     args = parser.parse_args()
     model_type = args.model_type
@@ -99,6 +104,8 @@ if __name__ == '__main__':
     n_batch_verif = args.n_batch_verif
     lossFun = args.loss
     lr = args.lr
+    pooling = args.pooling
+    n_classes = args.n_classes
 
     if lossFun == 'loss_bc':
         from loss import loss_bc as loss_fn
@@ -148,9 +155,13 @@ if __name__ == '__main__':
                                         n_batches_epoch=n_batch_verif)
     H0_loader_train = torch.utils.data.DataLoader(dataset_train, batch_sampler=batch_sampler_H0t,
                                             num_workers=num_workers)
-    batch_sampler_H0v = BalanceBatchSampler(dataset=dataset_validation, n_classes=n_classes * 2, n_samples=1,
-                                        n_batches_epoch=n_batch_verif)
-    H0_loader_validation = torch.utils.data.DataLoader(dataset_validation, batch_sampler=batch_sampler_H0v,
+    # batch_sampler_H0v = BalanceBatchSampler(dataset=dataset_validation, n_classes=n_classes * 2, n_samples=1,
+    #                                     n_batches_epoch=n_batch_verif)
+    # H0_loader_validation = torch.utils.data.DataLoader(dataset_validation, batch_sampler=batch_sampler_H0v,
+    #                                                    num_workers=num_workers)
+    batch_sampler_H0v = BalanceBatchSampler(dataset=dataset_train, n_classes=n_classes * 2, n_samples=1,
+                                            n_batches_epoch=n_batch_verif)
+    H0_loader_validation = torch.utils.data.DataLoader(dataset_train, batch_sampler=batch_sampler_H0v,
                                                   num_workers=num_workers)
     H0_id_t, H0_data_t, H0_id_v, H0_data_v = [], [], [], []
     dataloader_H0_t = iter(H0_loader_train)
@@ -167,13 +178,13 @@ if __name__ == '__main__':
     #  --------------------------------------------------------------------------------------
     # Model Definitions
     #  --------------------------------------------------------------------------------------
-    model = SetNet(base_model_architecture=model_type, num_clusters=num_clusters, vlad_dim=vlad_dim,
-                   vlad_v2=vlad_v2)
+    model = SetNet(base_model_architecture=model_type, num_clusters=num_clusters, vset_dim=vlad_dim,
+                   vlad_v2=vlad_v2, pooling=pooling)
     logisticReg = LogisticReg()
     # Initialize NetVLAD
     if clustering:
         get_clusters(dataset_train, num_clusters, model_type=model_type, batch_size=64, n_batches=50000)
-    if start:
+    if start and pooling == 'vlad':
         initcache = os.path.join(ROOT_DIR, 'centroids',
                                  model_type + '_' + '_' + str(num_clusters) + '_desc_cen.hdf5')
         with h5py.File(initcache, mode='r') as h5:
@@ -213,118 +224,136 @@ if __name__ == '__main__':
     #           factor=0.5, patience=2, verbose=True, min_lr=1e-6, threshold=0.001, threshold_mode='abs')
     path_ckpt = '{}/ckpt/{}'.format(ROOT_DIR, exp_name)
     # learning checkpointer
-    ckpter = CheckPoint(model=model, optimizer=optimizer_model, path=path_ckpt,
+    ckpter: CheckPoint = CheckPoint(model=model, optimizer=optimizer_model, path=path_ckpt,
                         prefix=run_name, interval=1, save_num=n_save_epoch, loss0=loss0)
     ckpter_lr = CheckPoint(model=logisticReg, optimizer=optimizer_model, path=path_ckpt,
                            prefix=run_name + '_lr', interval=1, save_num=n_save_epoch, loss0=loss0)
     train_hist = History(name='train_hist' + run_name)
     validation_hist = History(name='validation_hist' + run_name)
-    if start:
-        # ---------  Training logs before start training -----------------
-        # model.eval()
-        # logisticReg.eval()
-        with torch.no_grad():
-            tot_loss, tot_acc = 0, 0
-            n_batches = len(train_loader)
-            Ptp01, Ptp05 = np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif)
-            vs, vf, tg = [], [], []
-            idx = -1
-            for batch_idx, (data, target, img_file, class_id) in enumerate(train_loader):
-                data_set = data[np.arange(0, batch_size, n_samples)].to(device)
-                data_query = data[np.arange(1, batch_size, n_samples)].to(device)
-                v_set = model(data_set, m=m_set)  # single vector per set
-                v_f = model(data_query, m=1)  # single vector per query
-                Sim = torch.mm(v_set, v_f.t())
-                output = logisticReg(Sim.unsqueeze(-1)).squeeze()
-                loss_outputs, accuracy = loss_fn(output, len(v_f), m_set)
-                tot_acc += accuracy
-                tot_loss += loss_outputs
-
-                vs.append(v_set)
-                vf.append(v_f)
-                tg.append(target)
-                if (batch_idx + 1) % n_batch_verif == 0:
-                    idx += 1
-                    vs = torch.stack(vs).flatten(start_dim=0, end_dim=1)
-                    vf = torch.stack(vf).flatten(start_dim=0, end_dim=1)
-                    tg = torch.stack(tg).flatten(start_dim=0, end_dim=1)
-                    Ptp01[idx], Ptp05[idx] = acc_authentication(model, logisticReg, H0_id_t, H0_data_t,
-                                                                  tg, vf.size(0), vs, vf, m_set, n_batch_verif)
-                    vs, vf, tg = [], [], []
-
-            avg_loss = tot_loss / n_batches
-            avg_acc = tot_acc / n_batches
-        print('Training log before start training--->avg_loss: %.3f' % avg_loss,
-              'avg_acc: %.3f' % avg_acc, ' ptp01: %.3f' % np.mean(Ptp01), 'ptp05: %.3f' % np.mean(Ptp05))
-        train_logs = {'loss': avg_loss, 'acc': avg_acc, 'ptp01': np.mean(Ptp01), 'ptp05': np.mean(Ptp05)}
-        train_hist.add(logs=train_logs, epoch=0)
-        # ---------  Validation logs before start training -----------------
-        # model.eval()
-        # logisticReg.eval()
-        tot_loss, tot_acc = 0, 0
-        n_batches = len(validation_loader)
-        Ptp01, Ptp05 = np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif)
-        vs, vf, tg = [], [], []
-        idx = -1
-        with torch.no_grad():
-            for batch_idx, (data, target, img_file, class_id) in enumerate(validation_loader):
-                data_set = data[np.arange(0, batch_size, n_samples)].to(device)
-                data_query = data[np.arange(1, batch_size, n_samples)].to(device)
-                v_set = model(data_set, m=m_set)  # single vector per set
-                v_f = model(data_query, m=1)  # single vector per query
-                Sim = torch.mm(v_set, v_f.t())
-                # output = Sim
-                output = logisticReg(Sim.unsqueeze(-1)).squeeze()
-                loss_outputs, accuracy = loss_fn(output, len(v_f), m_set)
-                tot_acc += accuracy
-                tot_loss += loss_outputs
-
-                vs.append(v_set)
-                vf.append(v_f)
-                tg.append(target)
-                if (batch_idx + 1) % n_batch_verif == 0:
-                    idx += 1
-                    vs = torch.stack(vs).flatten(start_dim=0, end_dim=1)
-                    vf = torch.stack(vf).flatten(start_dim=0, end_dim=1)
-                    tg = torch.stack(tg).flatten(start_dim=0, end_dim=1)
-
-                    Ptp01[idx], Ptp05[idx] = acc_authentication(model, logisticReg, H0_id_v, H0_data_v,
-                                                                      tg, vf.size(0), vs, vf, m_set, n_batch_verif)
-                    vs, vf, tg = [], [], []
-        avg_loss = tot_loss / n_batches
-        avg_acc = tot_acc / n_batches
-        print('Validation log before start training--->avg_loss: %.3f' % avg_loss, 'avg_acc: %.3f' % avg_acc,
-              ' ptp01: %.3f' % np.mean(Ptp01), 'ptp05: %.3f' % np.mean(Ptp05))
-        validation_logs = {'loss': avg_loss, 'acc': avg_acc, 'ptp01': np.mean(Ptp01),
-                           'ptp05': np.mean(Ptp05)}
-        validation_hist.add(logs=validation_logs, epoch=0)
-    else:
-        train_hist = dill.load(open(ROOT_DIR + "/ckpt/" + exp_name + train_hist.name + ".pickle", "rb"))
-        validation_hist = dill.load(open(ROOT_DIR + "/ckpt/" + exp_name + validation_hist.name + ".pickle", "rb"))
+    # if start:
+    #     # ---------  Training logs before start training -----------------
+    #     # model.eval()
+    #     # logisticReg.eval()
+    #     with torch.no_grad():
+    #         tot_loss, tot_acc = 0, 0
+    #         n_batches = len(train_loader)
+    #         Ptp01, Ptp05 = np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif)
+    #         vs, vf, tg = [], [], []
+    #         idx = -1
+    #         for batch_idx, (data, target, img_file, class_id) in enumerate(train_loader):
+    #             data_set = data[np.arange(0, batch_size, n_samples)].to(device)
+    #             data_query = data[np.arange(1, batch_size, n_samples)].to(device)
+    #             v_set = model(data_set, m=m_set)  # single vector per set
+    #             v_f = model(data_query, m=1)  # single vector per query
+    #             Sim = torch.mm(v_set, v_f.t())
+    #             output = logisticReg(Sim.unsqueeze(-1)).squeeze()
+    #             loss_outputs, accuracy = loss_fn(output, len(v_f), m_set)
+    #             tot_acc += accuracy
+    #             tot_loss += loss_outputs
+    #
+    #             vs.append(v_set)
+    #             vf.append(v_f)
+    #             tg.append(target)
+    #             if (batch_idx + 1) % n_batch_verif == 0:
+    #                 idx += 1
+    #                 vs = torch.stack(vs).flatten(start_dim=0, end_dim=1)
+    #                 vf = torch.stack(vf).flatten(start_dim=0, end_dim=1)
+    #                 tg = torch.stack(tg).flatten(start_dim=0, end_dim=1)
+    #                 Ptp01[idx], Ptp05[idx] = acc_authentication(model, logisticReg, H0_id_t, H0_data_t,
+    #                                                               tg, vf.size(0), vs, vf, m_set, n_batch_verif)
+    #                 vs, vf, tg = [], [], []
+    #
+    #         avg_loss = tot_loss / n_batches
+    #         avg_acc = tot_acc / n_batches
+    #     print('Training log before start training--->avg_loss: %.3f' % avg_loss,
+    #           'avg_acc: %.3f' % avg_acc, ' ptp01: %.3f' % np.mean(Ptp01), 'ptp05: %.3f' % np.mean(Ptp05))
+    #     train_logs = {'loss': avg_loss, 'acc': avg_acc, 'ptp01': np.mean(Ptp01), 'ptp05': np.mean(Ptp05)}
+    #     train_hist.add(logs=train_logs, epoch=0)
+    #     # ---------  Validation logs before start training -----------------
+    #     # model.eval()
+    #     # logisticReg.eval()
+    #     tot_loss, tot_acc = 0, 0
+    #     n_batches = len(validation_loader)
+    #     Ptp01, Ptp05 = np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif)
+    #     vs, vf, tg = [], [], []
+    #     idx = -1
+    #     with torch.no_grad():
+    #         for batch_idx, (data, target, img_file, class_id) in enumerate(validation_loader):
+    #             data_set = data[np.arange(0, batch_size, n_samples)].to(device)
+    #             data_query = data[np.arange(1, batch_size, n_samples)].to(device)
+    #             v_set = model(data_set, m=m_set)  # single vector per set
+    #             v_f = model(data_query, m=1)  # single vector per query
+    #             Sim = torch.mm(v_set, v_f.t())
+    #             # output = Sim
+    #             output = logisticReg(Sim.unsqueeze(-1)).squeeze()
+    #             loss_outputs, accuracy = loss_fn(output, len(v_f), m_set)
+    #             tot_acc += accuracy
+    #             tot_loss += loss_outputs
+    #
+    #             vs.append(v_set)
+    #             vf.append(v_f)
+    #             tg.append(target)
+    #             if (batch_idx + 1) % n_batch_verif == 0:
+    #                 idx += 1
+    #                 vs = torch.stack(vs).flatten(start_dim=0, end_dim=1)
+    #                 vf = torch.stack(vf).flatten(start_dim=0, end_dim=1)
+    #                 tg = torch.stack(tg).flatten(start_dim=0, end_dim=1)
+    #
+    #                 Ptp01[idx], Ptp05[idx] = acc_authentication(model, logisticReg, H0_id_v, H0_data_v,
+    #                                                                   tg, vf.size(0), vs, vf, m_set, n_batch_verif)
+    #                 vs, vf, tg = [], [], []
+    #     avg_loss = tot_loss / n_batches
+    #     avg_acc = tot_acc / n_batches
+    #     print('Validation log before start training--->avg_loss: %.3f' % avg_loss, 'avg_acc: %.3f' % avg_acc,
+    #           ' ptp01: %.3f' % np.mean(Ptp01), 'ptp05: %.3f' % np.mean(Ptp05))
+    #     validation_logs = {'loss': avg_loss, 'acc': avg_acc, 'ptp01': np.mean(Ptp01),
+    #                        'ptp05': np.mean(Ptp05)}
+    #     validation_hist.add(logs=validation_logs, epoch=0)
+    # else:
+    #     train_hist = dill.load(open(ROOT_DIR + "/ckpt/" + exp_name + train_hist.name + ".pickle", "rb"))
+    #     validation_hist = dill.load(open(ROOT_DIR + "/ckpt/" + exp_name + validation_hist.name + ".pickle", "rb"))
     #  --------------------------------------------------------------------------------------
     # Training
     #  --------------------------------------------------------------------------------------
     for epoch in range(last_epoch + 1, n_epoch):
+        t11 = time.time()
         print('Training epoch', epoch + 1)
         tot_loss, tot_acc = 0, 0
         n_batches = len(train_loader)
         epoch_time_start = time.time()
         model.train()
         logisticReg.train()
+        t0 = time.time()
         for batch_idx, (data, target, img_file, class_id) in enumerate(train_loader):
+            if batch_idx < 20:
+                print('t0', time.time() - t0)
             data_set = data[np.arange(0, batch_size, n_samples)].to(device)
             data_query = data[np.arange(1, batch_size, n_samples)].to(device)
+            t1 = time.time()
             v_set = model(data_set, m=m_set)  # single vector per set
+            if batch_idx < 20:
+                print('t1', time.time()-t1)
             v_f = model(data_query, m=1)  # single vector per query
             Sim = torch.mm(v_set, v_f.t())  # torch.mm(v_set, v_f.T)
             output = logisticReg(Sim.unsqueeze(-1)).squeeze()
+            t1 = time.time()
             loss_outputs, accuracy = loss_fn(output, len(v_f), m_set)
+            if batch_idx < 20:
+                print('t2', time.time() - t1)
             tot_acc += accuracy
             tot_loss += loss_outputs
             optimizer_model.zero_grad()
             # print('device:', loss_outputs.device, 'type:', loss_outputs.dtype, 'value:', loss_outputs)
+            t1 = time.time()
             loss_outputs.backward()
+            if batch_idx < 20:
+                print('t3', time.time() - t1)
+            t1 = time.time()
             optimizer_model.step()
+            if batch_idx < 20:
+                print('t4', time.time() - t1)
+            t0 = time.time()
+        print('t_train', time.time() - t11)
         avg_loss_train = tot_loss / n_batches
         avg_acc_train = tot_acc / n_batches
         #  --------------------------------------------------------------------------------------
@@ -339,6 +368,7 @@ if __name__ == '__main__':
         Ptp01, Ptp05 = np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif)
         vs, vf, tg = [], [], []
         idx = -1
+        t11 = time.time()
         with torch.no_grad():
             for batch_idx, (data, target, img_file, class_id) in enumerate(validation_loader):
                 data_set = data[np.arange(0, batch_size, n_samples)].to(device)
@@ -362,6 +392,7 @@ if __name__ == '__main__':
                     Ptp01[idx], Ptp05[idx] = acc_authentication(model, logisticReg, H0_id_v, H0_data_v,
                                                                   tg, vf.size(0), vs, vf, m_set, n_batch_verif)
                     vs, vf, tg = [], [], []
+        print('t_valid', time.time() - t11)
         avg_loss = tot_loss / n_batches
         avg_acc = tot_acc / n_batches
         print('avg_loss: %.3f' % avg_loss, 'avg_acc: %.3f' % avg_acc, ' --->ptp01: %.3f' % np.mean(Ptp01),
