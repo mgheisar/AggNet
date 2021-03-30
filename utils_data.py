@@ -116,6 +116,8 @@ class Reporter(object):
                     acc_str = re.search('loss_(.*)\.tar', s).group(1)
                 elif self.monitor == 'acc':
                     acc_str = re.search('acc_(.*)\.tar', s).group(1)
+                elif self.monitor == 'auc':
+                    acc_str = re.search('auc_(.*)\.tar', s).group(1)
                 loss.append(float(acc_str))
 
         loss = np.array(loss)
@@ -129,6 +131,11 @@ class Reporter(object):
             best_fname = matched[best_idx]
             self.selected_run = best_fname.split(',')[0]
             self.selected_epoch = int(re.search('Epoch_(.*),acc', best_fname).group(1))
+        elif self.monitor == 'auc':
+            best_idx = np.argmax(loss)
+            best_fname = matched[best_idx]
+            self.selected_run = best_fname.split(',')[0]
+            self.selected_epoch = int(re.search('Epoch_(.*),auc', best_fname).group(1))
 
         ckpt_file = os.path.join(self.exp_path, best_fname)
         self.selected_ckpt = ckpt_file
@@ -153,8 +160,14 @@ class Reporter(object):
                     epoch = re.search('last_Epoch_(.*),loss', s).group(1)
                     loss = re.search('loss_(.*)', s).group(1)
                 elif self.monitor == 'acc':
-                    epoch = re.search('last_Epoch_(.*),acc', s).group(1)
-                    loss = re.search('acc_(.*)', s).group(1)
+                    try:
+                        epoch = re.search('last_Epoch_(.*),acc', s).group(1)
+                        loss = re.search('acc_(.*)', s).group(1)
+                    except AttributeError:
+                        continue
+                elif self.monitor == 'auc':
+                    epoch = re.search('last_Epoch_(.*),auc', s).group(1)
+                    loss = re.search('auc_(.*)', s).group(1)
                 last_fname = s
 
         self.selected_run = last_fname.split(',')[0]

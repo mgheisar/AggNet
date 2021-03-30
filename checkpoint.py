@@ -138,6 +138,9 @@ class CheckPoint(object):
                     elif monitor == 'acc':
                         epoch_str = re.search('Epoch_(.*),acc', s).group(1)
                         acc_str = re.search('acc_(.*)\.tar', s).group(1)
+                    elif monitor == 'auc':
+                        epoch_str = re.search('Epoch_(.*),auc', s).group(1)
+                        acc_str = re.search('auc_(.*)\.tar', s).group(1)
                     self._monitored.append(float(acc_str))
                     loss_acc_temp = {monitor: float(acc_str)}
                     self._path_list.append(self._get_save_path(int(epoch_str), monitor, loss_acc_temp))
@@ -163,5 +166,15 @@ class CheckPoint(object):
                         print("created")
                     else:
                         print('[CheckPoint:]acc not improved on {:.3f}'.format(max(self._monitored))) if self.verbose else None
+
+                elif monitor == 'auc':
+                    if loss_acc['auc'] > min(self._monitored):
+                        min_id = np.argmin(self._monitored)
+                        self._monitored[int(min_id)] = loss_acc['auc']
+                        self._delete_and_save(epoch, monitor, loss_acc, delete_idx=int(min_id))
+                        print("created")
+                    else:
+                        print('[CheckPoint:]auc not improved on {:.3f}'.format(
+                            max(self._monitored))) if self.verbose else None
                 else:
                     print('[CheckPoint:]not supported CheckPoint monitor value') if self.verbose else None

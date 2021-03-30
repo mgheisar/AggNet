@@ -13,7 +13,7 @@ import faiss
 from sklearn.neighbors import NearestNeighbors
 import h5py
 from utils_data import BalanceBatchSampler
-import time
+from sklearn import metrics
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -151,6 +151,20 @@ class GeM(nn.Module):
                ', ' + 'eps=' + str(self.eps) + ')'
 
 
+class SumPooling(nn.Module):
+    def __init__(self, normalize_input=True, dim=128):
+        super(SumPooling, self).__init__()
+        self.normalize_input = normalize_input
+        self.bn = nn.BatchNorm1d(dim)
+
+    def forward(self, x):
+        if self.normalize_input:
+            x = F.normalize(x, p=2, dim=1)  # across descriptor dim
+        set_vec = torch.sum(x, dim=0)
+        set_vec = F.normalize(set_vec, p=2, dim=1)  # L2 normalize
+        return set_vec
+
+
 class SetNet(nn.Module):
     def __init__(self, base_model_architecture="resnet50_128", num_clusters=8, vset_dim=128,
                  vlad_v2=False, pooling='vlad'):
@@ -174,6 +188,9 @@ class SetNet(nn.Module):
                                 vlad_v2=vlad_v2, normalize_input=True)
         elif self.pooling == 'gem':
             self.gem_pooling = GeM(p=3, eps=1e-6)
+
+        elif self.pooling == 'sum':
+            self.sum_pooling = SumPooling()
         self.bn_x = nn.BatchNorm1d(dim, affine=False)
 
     def forward(self, x, m, pooling='vlad'):
@@ -189,6 +206,8 @@ class SetNet(nn.Module):
             v_set = self.net_vlad(x)
         elif self.pooling == 'gem':
             v_set = self.gem_pooling(x)
+        elif self.pooling == 'sum':
+            v_set = self.sum_pooling(x)
         return v_set
 
 
@@ -237,12 +256,20 @@ def acc_authentication(model, logisticReg, H0_id, H0_data, target, n_classes, v_
     tau = D0[int(Pfp * n_classes)]
     Ptp05 = np.count_nonzero(D1 > tau) / n_classes
 
+    tau = np.linspace(D1[0], D0[-1], 100)  # endpoint=True
+    fpr = np.zeros(len(tau))
+    tpr = np.zeros(len(tau))
+    for kt in range(len(tau)):
+        fpr[kt] = np.count_nonzero(D0 > tau[kt]) / n_classes
+        tpr[kt] = np.count_nonzero(D1 > tau[kt]) / n_classes
+    auc = metrics.auc(fpr, tpr)
+
     # y_pred = torch.diag(F.sigmoid(D11_) > 0.5).float()
     # tpr = torch.mean((y_pred == 1).float())
     #
     # y_pred = torch.diag(F.sigmoid(D00_) > 0.5).float()
     # tnr = torch.mean((y_pred == 0).float())
-    return Ptp01, Ptp05
+    return Ptp01, Ptp05, auc
 
 
 class LogisticReg(nn.Module):

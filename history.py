@@ -13,6 +13,7 @@ class History(object):
         self.name = name
         self.epoch = []
         self.acc = []
+        self.auc = []
         self.acc_bin = []
         self.loss = []
         self.ptp01 = []
@@ -27,6 +28,8 @@ class History(object):
             self.loss.append(logs['loss'])
         if 'acc' in logs.keys():
             self.acc.append(logs['acc'])
+        if 'auc' in logs.keys():
+            self.auc.append(logs['auc'])
         if 'acc_bin' in logs.keys():
             self.acc_bin.append(logs['acc_bin'])
         if 'ptp01' in logs.keys():
@@ -40,7 +43,7 @@ class History(object):
         # new figure and axis
         else:
             plt.figure()
-            num = int((len(self.acc) != 0) + (len(self.loss) != 0) + (len(self.acc_bin) != 0)
+            num = int((len(self.acc) != 0) + (len(self.auc) != 0) + (len(self.loss) != 0) + (len(self.acc_bin) != 0)
                       + (len(self.ptp01) != 0) + (len(self.ptp05) != 0))
             for i in range(num):
                 self.axes.append(plt.subplot(num, 1, i + 1))
@@ -71,6 +74,12 @@ class History(object):
         if len(self.acc) != 0:
             self.axes[cnt].plot(self.epoch, self.acc)
             self.axes[cnt].legend([self.name + '/acc'])
+            self.axes[cnt].set_xticks(ticks)
+            self.axes[cnt].set_xticklabels([str(e) for e in ticks])
+            cnt += 1
+        if len(self.auc) != 0:
+            self.axes[cnt].plot(self.epoch, self.auc)
+            self.axes[cnt].legend([self.name + '/auc'])
             self.axes[cnt].set_xticks(ticks)
             self.axes[cnt].set_xticklabels([str(e) for e in ticks])
             cnt += 1
