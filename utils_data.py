@@ -166,8 +166,11 @@ class Reporter(object):
                     except AttributeError:
                         continue
                 elif self.monitor == 'auc':
-                    epoch = re.search('last_Epoch_(.*),auc', s).group(1)
-                    loss = re.search('auc_(.*)', s).group(1)
+                    try:
+                        epoch = re.search('last_Epoch_(.*),auc', s).group(1)
+                        loss = re.search('auc_(.*)', s).group(1)
+                    except AttributeError:
+                        continue
                 last_fname = s
 
         self.selected_run = last_fname.split(',')[0]

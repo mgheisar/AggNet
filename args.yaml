@@ -18,4 +18,4 @@ clustering : 0
 vlad_v2 : 0
 loss : 'loss_bc'
 optimizer : 'sgd'
-alpha : 0.1
+alpha : 0.001  # 0.01, 0.001

@@ -8,7 +8,6 @@ venv/
 *.json
 *.sh
 *.jpg
-*.png
 *.pdf
 *.json
 *.pkl

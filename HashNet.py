@@ -240,9 +240,10 @@ def acc_authentication(model, logisticReg, H0_id, H0_data, target, n_classes, v_
     # logisticReg.eval()
     with torch.no_grad():
         for i in range(n_batch_verif):
-            v_, code_f0 = model(H0_data[i * temp:(i + 1) * temp].to(device), m=1)
+            code_f0 = model(H0_data[i * temp:(i + 1) * temp].to(device), m=1)
             v_f0.append(code_f0)  # single vector per query
-    v_f0 = torch.stack(v_f0).flatten(start_dim=0, end_dim=1)
+
+    v_f0 = torch.sign(torch.stack(v_f0).flatten(start_dim=0, end_dim=1) + 1e-16)
     H0_claimed_group_id = torch.randint(n_classes // m_set, (n_classes,)).numpy().astype(np.int)
     # D00_ = torch.mm(v_set[H0_claimed_group_id], v_f0.t())
     # D00 = torch.diag(D00_).cpu()

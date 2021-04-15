@@ -136,11 +136,17 @@ class CheckPoint(object):
                         epoch_str = re.search('Epoch_(.*),loss', s).group(1)
                         acc_str = re.search('loss_(.*)\.tar', s).group(1)
                     elif monitor == 'acc':
-                        epoch_str = re.search('Epoch_(.*),acc', s).group(1)
-                        acc_str = re.search('acc_(.*)\.tar', s).group(1)
+                        try:
+                            epoch_str = re.search('Epoch_(.*),acc', s).group(1)
+                            acc_str = re.search('acc_(.*)\.tar', s).group(1)
+                        except AttributeError:
+                            continue
                     elif monitor == 'auc':
-                        epoch_str = re.search('Epoch_(.*),auc', s).group(1)
-                        acc_str = re.search('auc_(.*)\.tar', s).group(1)
+                        try:
+                            epoch_str = re.search('Epoch_(.*),auc', s).group(1)
+                            acc_str = re.search('auc_(.*)\.tar', s).group(1)
+                        except AttributeError:
+                            continue
                     self._monitored.append(float(acc_str))
                     loss_acc_temp = {monitor: float(acc_str)}
                     self._path_list.append(self._get_save_path(int(epoch_str), monitor, loss_acc_temp))

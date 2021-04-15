@@ -219,9 +219,14 @@ if __name__ == '__main__':
                             exp=exp_name, monitor='acc')
         last_model_filename = reporter.select_last(run=run_name + '_lr').selected_ckpt
         logisticReg.load_state_dict(torch.load(last_model_filename)['model_state_dict'])
+
+        reporter.monitor = 'auc'
+        auc_last = reporter.select_last(run=run_name).last_loss
+        auc_last = float(auc_last[:-4])
     else:
         last_epoch = -1
         loss0 = 0
+        auc_last = 0
     path_ckpt = '{}/ckpt/{}'.format(ROOT_DIR, exp_name)
     # learning checkpointer
     ckpter = CheckPoint(model=model, optimizer=optimizer_model, path=path_ckpt,
@@ -229,9 +234,9 @@ if __name__ == '__main__':
     ckpter_lr = CheckPoint(model=logisticReg, optimizer=optimizer_model, path=path_ckpt,
                            prefix=run_name + '_lr', interval=1, save_num=n_save_epoch, loss0=loss0)
     ckpter_auc = CheckPoint(model=model, optimizer=optimizer_model, path=path_ckpt,
-                            prefix=run_name, interval=1, save_num=n_save_epoch, loss0=loss0)
+                            prefix=run_name, interval=1, save_num=n_save_epoch, loss0=auc_last)
     ckpter_auc_lr = CheckPoint(model=logisticReg, optimizer=optimizer_model, path=path_ckpt,
-                               prefix=run_name + '_lr', interval=1, save_num=n_save_epoch, loss0=loss0)
+                               prefix=run_name + '_lr', interval=1, save_num=n_save_epoch, loss0=auc_last)
     train_hist = History(name='train_hist' + run_name)
     validation_hist = History(name='validation_hist' + run_name)
     if start:
@@ -342,6 +347,7 @@ if __name__ == '__main__':
             data_query = data[np.arange(1, batch_size, n_samples)].to(device)
             v_set, code_set = model(data_set, m=m_set)  # single vector per set
             v_f, code_f = model(data_query, m=1)  # single vector per query
+            # Sim = torch.mm(code_set, code_f.t())
             Sim = torch.mm(F.normalize(code_set, p=2, dim=1), F.normalize(code_f, p=2, dim=1).t())
             output = logisticReg(Sim.unsqueeze(-1)).squeeze()
             loss1, accuracy = loss_fn(output, len(code_f), m_set)
