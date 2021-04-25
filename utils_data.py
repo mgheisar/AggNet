@@ -103,7 +103,7 @@ class Reporter(object):
 
         matched = []
         for fname in self.run_list:
-            if fname.startswith(run) and fname.endswith('tar'):
+            if fname.startswith(run+',') and fname.endswith('tar'):
                 matched.append(fname)
 
         loss = []
@@ -113,11 +113,23 @@ class Reporter(object):
                 matched.remove(s)
             else:
                 if self.monitor == 'loss':
-                    acc_str = re.search('loss_(.*)\.tar', s).group(1)
+                    try:
+                        acc_str = re.search('loss_(.*)\.tar', s).group(1)
+                    except AttributeError:
+                        loss.append(float(1000))
+                        continue
                 elif self.monitor == 'acc':
-                    acc_str = re.search('acc_(.*)\.tar', s).group(1)
+                    try:
+                        acc_str = re.search('acc_(.*)\.tar', s).group(1)
+                    except AttributeError:
+                        loss.append(float(0))
+                        continue
                 elif self.monitor == 'auc':
-                    acc_str = re.search('auc_(.*)\.tar', s).group(1)
+                    try:
+                        acc_str = re.search('auc_(.*)\.tar', s).group(1)
+                    except AttributeError:
+                        loss.append(float(0))
+                        continue
                 loss.append(float(acc_str))
 
         loss = np.array(loss)
@@ -157,8 +169,11 @@ class Reporter(object):
         for s in matched:
             if re.search('last_Epoch', s):
                 if self.monitor == 'loss':
-                    epoch = re.search('last_Epoch_(.*),loss', s).group(1)
-                    loss = re.search('loss_(.*)', s).group(1)
+                    try:
+                        epoch = re.search('last_Epoch_(.*),loss', s).group(1)
+                        loss = re.search('loss_(.*)', s).group(1)
+                    except AttributeError:
+                        continue
                 elif self.monitor == 'acc':
                     try:
                         epoch = re.search('last_Epoch_(.*),acc', s).group(1)

@@ -6,16 +6,17 @@ lr : 0.001 # 0.001 learning rate of 0.001 for pre-training and 0.0001 for fine-t
 n_epoch : 200
 run_name : 'Run01'
 exp_name : 'vgg2'
-num_workers : 0
+num_workers : 4
 n_save_epoch : 1
 n_classes : 32
 n_samples : 2
 n_batches_train : 0  # None
 n_batches_valid : 0  # None
+n_batch_verif : 10
 upper_vgg : 0
 num_clusters : 8
 clustering : 0
 vlad_v2 : 0
-loss : 'loss_bc'
+loss : 'loss_auc_max_v1'
 optimizer : 'sgd'
 alpha : 0.001  # 0.01, 0.001

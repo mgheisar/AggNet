@@ -131,13 +131,16 @@ if __name__ == '__main__':
     training_dataset_root = '/nfs/nas4/marzieh/marzieh/VGG_Face2/train/'
     dataset_train = VGG_Faces2(training_dataset_root, split='train', upper=upper_vgg)
     if exp_name == 'lfw':
-        mean_rgb = np.array([131.0912, 103.8827, 91.4953])
+        mean_rgb = (0.485, 0.456, 0.406)  # (0.5, 0.5, 0.5)
+        std_rgb = (0.229, 0.224, 0.225)  # (0.5, 0.5, 0.5)
         dataset_validation = torchvision.datasets.ImageFolder(root=dataroot,
                                                               transform=torchvision.transforms.Compose([
                                                                   torchvision.transforms.Resize(256),
                                                                   torchvision.transforms.CenterCrop(224),
-                                                                  torchvision.transforms.Normalize(mean=mean_rgb),
-                                                                  torchvision.transforms.ToTensor()]))
+                                                                  torchvision.transforms.ToTensor(),
+                                                                  torchvision.transforms.Normalize(mean=mean_rgb,
+                                                                                                   std=std_rgb)]
+                                                              ))
     elif exp_name == 'vgg2':
         validation_dataset_root = '/nfs/nas4/marzieh/marzieh/VGG_Face2/test/'
         dataset_validation = VGG_Faces2(validation_dataset_root, split='validation', upper=upper_vgg)
@@ -225,6 +228,9 @@ if __name__ == '__main__':
         last_epoch = -1
         loss0 = 0
         auc_last = 0
+
+    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer_model, mode="min",
+            factor=0.1, patience=0, verbose=True, min_lr=1e-8, threshold=0.0001, threshold_mode='abs')
     path_ckpt = '{}/ckpt/{}'.format(ROOT_DIR, exp_name)
     # learning checkpointer
     ckpter = CheckPoint(model=model, optimizer=optimizer_model, path=path_ckpt,
@@ -403,7 +409,7 @@ if __name__ == '__main__':
                     vs, vf, tg = [], [], []
         avg_loss = tot_loss / n_batches
         avg_acc = tot_acc / n_batches
-        print('avg_loss: %.3f' % avg_loss, 'avg_acc: %.3f' % avg_acc,
+        print('avg_loss: %.4f' % avg_loss, 'avg_acc: %.3f' % avg_acc,
               ' --->ptp01: %.3f' % np.mean(Ptp01), 'ptp05: %.3f' % np.mean(Ptp05)
               , ' auc: %.3f' % np.mean(AUC))
         validation_logs = {'loss': avg_loss, 'acc': avg_acc, 'ptp01': np.mean(Ptp01),
@@ -447,7 +453,7 @@ if __name__ == '__main__':
                         vs, vf, tg = [], [], []
             avg_loss = tot_loss / n_batches
             avg_acc = tot_acc / n_batches
-            print('avg_loss: %.3f' % avg_loss, 'avg_acc: %.3f' % avg_acc,
+            print('avg_loss: %.4f' % avg_loss, 'avg_acc: %.3f' % avg_acc,
                   ' --->ptp01: %.3f' % np.mean(Ptp01), 'ptp05: %.3f' % np.mean(Ptp05)
                   , ' auc: %.3f' % np.mean(AUC))
             train_logs = {'loss': avg_loss, 'acc': avg_acc, 'ptp01': np.mean(Ptp01),
@@ -456,12 +462,14 @@ if __name__ == '__main__':
 
         epoch_time_end = time.time()
         print(
-            'Epoch {}:\tAverage Loss: {:.3f}\tAverage Accuracy: {:.3f}\tEpoch Time: {:.3f} hours'.format(
+            'Epoch {}:\tAverage Loss: {:.4f}\tAverage Accuracy: {:.3f}\tEpoch Time: {:.3f} hours'.format(
                 epoch + 1,
                 avg_loss_train, avg_acc_train,
                 (epoch_time_end - epoch_time_start) / 3600,
             )
         )
+        if lr_scheduler is not None:
+            lr_scheduler.step(validation_logs['loss'])
         if epoch > 0:
             ckpter.last_delete_and_save(epoch=epoch, monitor='acc', loss_acc=validation_logs)
             ckpter_lr.last_delete_and_save(epoch=epoch, monitor='acc', loss_acc=validation_logs)

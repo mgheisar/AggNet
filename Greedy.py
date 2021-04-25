@@ -162,7 +162,8 @@ class SumPooling(nn.Module):
     def forward(self, x):
         if self.normalize_input:
             x = F.normalize(x, p=2, dim=1)  # across descriptor dim
-        set_vec = torch.sum(x, dim=0)
+        set_vec = torch.sum(x, dim=2).squeeze()
+        set_vec = self.bn(set_vec)
         set_vec = F.normalize(set_vec, p=2, dim=1)  # L2 normalize
         return set_vec
 
