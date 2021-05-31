@@ -86,30 +86,25 @@ if __name__ == '__main__':
     #  --------------------------------------------------------------------------------------
     # Load datasets
     #  --------------------------------------------------------------------------------------
-    exp_name = 'celeba'  # 'vgg2'
-    test_name = 'lfw'
-    mean_rgb = (0.485, 0.456, 0.406)  # (0.5, 0.5, 0.5) (0.485, 0.456, 0.406)
-    std_rgb = (0.229, 0.224, 0.225)  # (0.5, 0.5, 0.5) (0.229, 0.224, 0.225)
-    preprocess = torchvision.transforms.Compose([
-        torchvision.transforms.Resize(256),
-        torchvision.transforms.CenterCrop(224),
-        torchvision.transforms.ToTensor(),
-        torchvision.transforms.Normalize(mean=mean_rgb, std=std_rgb),
-    ])
-    if test_name == 'celeba':
-        dataroot = '/nfs/nas4/marzieh/marzieh/celebA/'
-        dataset_validation = torchvision.datasets.CelebA(root=dataroot, split='test',
-                    target_type='identity', transform=preprocess)  # split='test' 'valid'
-    elif test_name == 'lfw':
-        dataroot = '/nfs/nas4/marzieh/marzieh/VGG_Face2/lfw/lfw-deepfunneled/'
-        dataset_validation = torchvision.datasets.ImageFolder(root=dataroot, transform=preprocess)
-    elif test_name == 'cfp':
-        dataroot = '/nfs/nas4/marzieh/marzieh/cfp/cfpf-dataset/Data/Images/'
-        dataset_validation = torchvision.datasets.ImageFolder(root=dataroot, transform=preprocess)
-    elif test_name == 'casia':
-        dataroot = '/nfs/nas4/marzieh/marzieh/CASIA/CASIA-WebFace/'
-        dataset_validation = torchvision.datasets.ImageFolder(root=dataroot, transform=preprocess)
-    elif test_name == 'vgg2':
+    exp_name = 'lfw'
+    dataroot = '/nfs/nas4/marzieh/marzieh/VGG_Face2/lfw/lfw-deepfunneled/'
+    # dataroot = '/nfs/nas4/marzieh/marzieh/CASIA/CASIA-WebFace/'
+    # dataroot = "/nfs/nas4/marzieh/marzieh/AR_dataset/"
+    # dataroot = '/nfs/nas4/marzieh/marzieh/cfp/cfpf-dataset/Data/Images/'
+    # dataroot = '/nfs/nas4/marzieh/marzieh/celebA/celeba/'
+    if exp_name == 'lfw':
+        mean_rgb = (0.485, 0.456, 0.406)  # (0.5, 0.5, 0.5) (0.485, 0.456, 0.406)
+        std_rgb = (0.229, 0.224, 0.225)  # (0.5, 0.5, 0.5) (0.229, 0.224, 0.225)
+        preprocess = torchvision.transforms.Compose([
+            torchvision.transforms.Resize(256),
+            torchvision.transforms.CenterCrop(224),
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize(mean=mean_rgb, std=std_rgb),
+        ])
+        # dataset_validation = torchvision.datasets.CelebA(root=dataroot, split='valid', download=True)
+        # target_type='attr', transform=preprocess)  # split='test' 'valid'
+        # dataset_validation = torchvision.datasets.ImageFolder(root=dataroot, transform=preprocess)
+    elif exp_name == 'vgg2':
         validation_dataset_root = '/nfs/nas4/marzieh/marzieh/VGG_Face2/test/'
         dataset_validation = VGG_Faces2(validation_dataset_root, split='validation', upper=upper_vgg)
     #  --------------------------------------------------------------------------------------
@@ -143,12 +138,12 @@ if __name__ == '__main__':
     #  --------------------------------------------------------------------------------------
     # reporter.monitor = 'auc' or 'acc' ????????????
     reporter = Reporter(ckpt_root=os.path.join(ROOT_DIR, 'ckpt'),
-                        exp=exp_name, monitor='acc')
+                        exp='vgg2', monitor='acc')
     best_model_filename = reporter.select_best(run=run_name).selected_ckpt
     # print(best_model_filename)
     model.load_state_dict(torch.load(best_model_filename)['model_state_dict'])
     reporter = Reporter(ckpt_root=os.path.join(ROOT_DIR, 'ckpt'),
-                        exp=exp_name, monitor='acc')
+                        exp='vgg2', monitor='acc')
     best_model_filename = reporter.select_best(run=run_name + '_lr').selected_ckpt
     # print(best_model_filename)
     logisticReg.load_state_dict(torch.load(best_model_filename)['model_state_dict'])
@@ -161,9 +156,7 @@ if __name__ == '__main__':
     vs, vf, tg = [], [], []
     idx = -1
     with torch.no_grad():
-        for batch_idx, value in enumerate(validation_loader):
-            data = value[0]
-            target = value[1]
+        for batch_idx, (data, target) in enumerate(validation_loader):
             data_set = data[np.arange(0, batch_size, n_samples)].to(device)
             data_query = data[np.arange(1, batch_size, n_samples)].to(device)
             v_set, code_set = model(data_set, m=m_set)  # single vector per set

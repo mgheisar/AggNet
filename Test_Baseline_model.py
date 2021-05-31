@@ -77,11 +77,11 @@ if __name__ == '__main__':
     if upper_vgg == 0:
         upper_vgg = None
     #  --------------------------------------------------------------------------------------
-    # Load train dataset
+    # Load datasets
     #  --------------------------------------------------------------------------------------
-    training_dataset_root = '/nfs/nas4/marzieh/marzieh/VGG_Face2/train/'
-    dataset_train = VGG_Faces2(training_dataset_root, split='train', upper=upper_vgg)
     exp_name = 'lfw'
+    # training_dataset_root = '/nfs/nas4/marzieh/marzieh/VGG_Face2/train/'
+    # dataset_train = VGG_Faces2(training_dataset_root, split='train', upper=upper_vgg)
     if exp_name == 'lfw':
         mean_rgb = (0.485, 0.456, 0.406)  # (0.5, 0.5, 0.5)
         std_rgb = (0.229, 0.224, 0.225)  # (0.5, 0.5, 0.5)
@@ -103,26 +103,13 @@ if __name__ == '__main__':
                                         n_batches_epoch=n_batches_valid)
     validation_loader = torch.utils.data.DataLoader(dataset_validation, batch_sampler=batch_sampler_v,
                                                     num_workers=num_workers)
-    batch_sampler_H0t = BalanceBatchSampler(dataset=dataset_train, n_classes=n_classes * 2, n_samples=1,
-                                        n_batches_epoch=n_batch_verif)
-    H0_loader_train = torch.utils.data.DataLoader(dataset_train, batch_sampler=batch_sampler_H0t,
-                                            num_workers=num_workers)
-    # batch_sampler_H0v = BalanceBatchSampler(dataset=dataset_validation, n_classes=n_classes * 2, n_samples=1,
-    #                                     n_batches_epoch=n_batch_verif)
-    # H0_loader_validation = torch.utils.data.DataLoader(dataset_validation, batch_sampler=batch_sampler_H0v,
-    #                                                    num_workers=num_workers)
-    batch_sampler_H0v = BalanceBatchSampler(dataset=dataset_train, n_classes=n_classes * 2, n_samples=1,
+    batch_sampler_H0v = BalanceBatchSampler(dataset=dataset_validation, n_classes=n_classes * 2, n_samples=1,
                                             n_batches_epoch=n_batch_verif)
-    H0_loader_validation = torch.utils.data.DataLoader(dataset_train, batch_sampler=batch_sampler_H0v,
+    H0_loader_validation = torch.utils.data.DataLoader(dataset_validation, batch_sampler=batch_sampler_H0v,
                                                   num_workers=num_workers)
-    H0_id_t, H0_data_t, H0_id_v, H0_data_v = [], [], [], []
-    dataloader_H0_t = iter(H0_loader_train)
+    H0_id_v, H0_data_v = [], []
     dataloader_H0_v = iter(H0_loader_validation)
     for i in range(n_batch_verif):
-        data = next(dataloader_H0_t)
-        H0_id_t.append(data[1])
-        H0_data_t.append(data[0])
-
         data = next(dataloader_H0_v)
         H0_id_v.append(data[1])
         H0_data_v.append(data[0])
@@ -136,7 +123,7 @@ if __name__ == '__main__':
     # logisticReg.eval()
     tot_loss, tot_acc = 0, 0
     n_batches = len(validation_loader)
-    Ptp01, Ptp05, AUC = np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif)
+    Ptp01, Ptp05, Ptp1, AUC = np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif)
     vs, vf, tg = [], [], []
     idx = -1
     with torch.no_grad():
@@ -158,10 +145,10 @@ if __name__ == '__main__':
                 vs = torch.stack(vs).flatten(start_dim=0, end_dim=1)
                 vf = torch.stack(vf).flatten(start_dim=0, end_dim=1)
                 tg = torch.stack(tg).flatten(start_dim=0, end_dim=1)
-                Ptp01[idx], Ptp05[idx], AUC[idx] = acc_authentication(model, H0_id_v, H0_data_v,
+                Ptp01[idx], Ptp05[idx], Ptp1[idx], AUC[idx] = acc_authentication(model, H0_id_v, H0_data_v,
                                                           tg, vf.size(0), vs, vf, m_set, n_batch_verif)
                 vs, vf, tg = [], [], []
     avg_acc = tot_acc / n_batches
     print('Evaluation --->avg_acc: %.3f' % avg_acc,
           ' ptp01: %.3f' % np.mean(Ptp01), 'ptp05: %.3f' % np.mean(Ptp05)
-          , ' auc: %.3f' % np.mean(AUC))
+          , 'ptp1: %.3f' % np.mean(Ptp1), ' auc: %.3f' % np.mean(AUC))

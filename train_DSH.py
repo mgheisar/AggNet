@@ -250,7 +250,7 @@ if __name__ == '__main__':
         with torch.no_grad():
             tot_loss, tot_acc = 0, 0
             n_batches = len(train_loader)
-            Ptp01, Ptp05, AUC = np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif)
+            Ptp01, Ptp05, Ptp1, AUC = np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif)
             vs, vf, tg = [], [], []
             idx = -1
             for batch_idx, (data, target, img_file, class_id) in enumerate(train_loader):
@@ -276,7 +276,7 @@ if __name__ == '__main__':
                     vs = torch.sign(torch.stack(vs).flatten(start_dim=0, end_dim=1) + 1e-16)
                     vf = torch.sign(torch.stack(vf).flatten(start_dim=0, end_dim=1) + 1e-16)
                     tg = torch.stack(tg).flatten(start_dim=0, end_dim=1)
-                    Ptp01[idx], Ptp05[idx], AUC[idx] = acc_authentication(model, logisticReg, H0_id_t, H0_data_t,
+                    Ptp01[idx], Ptp05[idx], Ptp1[idx], AUC[idx] = acc_authentication(model, logisticReg, H0_id_t, H0_data_t,
                                                                       tg, vf.size(0), vs, vf, m_set, n_batch_verif)
                     vs, vf, tg = [], [], []
 
@@ -293,7 +293,7 @@ if __name__ == '__main__':
         # logisticReg.eval()
         tot_loss, tot_acc = 0, 0
         n_batches = len(validation_loader)
-        Ptp01, Ptp05, AUC = np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif)
+        Ptp01, Ptp05, Ptp1, AUC = np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif)
         vs, vf, tg = [], [], []
         idx = -1
         with torch.no_grad():
@@ -320,7 +320,7 @@ if __name__ == '__main__':
                     vs = torch.sign(torch.stack(vs).flatten(start_dim=0, end_dim=1) + 1e-16)
                     vf = torch.sign(torch.stack(vf).flatten(start_dim=0, end_dim=1) + 1e-16)
                     tg = torch.stack(tg).flatten(start_dim=0, end_dim=1)
-                    Ptp01[idx], Ptp05[idx], AUC[idx] = acc_authentication(model, logisticReg, H0_id_v, H0_data_v,
+                    Ptp01[idx], Ptp05[idx], Ptp1[idx], AUC[idx] = acc_authentication(model, logisticReg, H0_id_v, H0_data_v,
                                                                       tg, vf.size(0), vs, vf, m_set, n_batch_verif)
                     vs, vf, tg = [], [], []
         avg_loss = tot_loss / n_batches
@@ -376,7 +376,7 @@ if __name__ == '__main__':
         # logisticReg.eval()
         tot_loss, tot_acc = 0, 0
         n_batches = len(validation_loader)
-        Ptp01, Ptp05, AUC = np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif)
+        Ptp01, Ptp05, Ptp1, AUC = np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif)
         vs, vf, tg = [], [], []
         idx = -1
         with torch.no_grad():
@@ -404,14 +404,14 @@ if __name__ == '__main__':
                     vs = torch.sign(torch.stack(vs).flatten(start_dim=0, end_dim=1) + 1e-16)
                     vf = torch.sign(torch.stack(vf).flatten(start_dim=0, end_dim=1) + 1e-16)
                     tg = torch.stack(tg).flatten(start_dim=0, end_dim=1)
-                    Ptp01[idx], Ptp05[idx], AUC[idx] = acc_authentication(model, logisticReg, H0_id_v, H0_data_v,
+                    Ptp01[idx], Ptp05[idx], Ptp1[idx], AUC[idx] = acc_authentication(model, logisticReg, H0_id_v, H0_data_v,
                                                                       tg, vf.size(0), vs, vf, m_set, n_batch_verif)
                     vs, vf, tg = [], [], []
         avg_loss = tot_loss / n_batches
         avg_acc = tot_acc / n_batches
         print('avg_loss: %.4f' % avg_loss, 'avg_acc: %.3f' % avg_acc,
               ' --->ptp01: %.3f' % np.mean(Ptp01), 'ptp05: %.3f' % np.mean(Ptp05)
-              , ' auc: %.3f' % np.mean(AUC))
+              , 'ptp1: %.3f' % np.mean(Ptp1), ' auc: %.3f' % np.mean(AUC))
         validation_logs = {'loss': avg_loss, 'acc': avg_acc, 'ptp01': np.mean(Ptp01),
                            'ptp05': np.mean(Ptp05), 'auc': np.mean(AUC)}
         validation_hist.add(logs=validation_logs, epoch=epoch + 1)
@@ -421,7 +421,7 @@ if __name__ == '__main__':
             # logisticReg.eval()
             tot_loss, tot_acc = 0, 0
             n_batches = len(train_loader)
-            Ptp01, Ptp05, AUC = np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif)
+            Ptp01, Ptp05, Ptp1, AUC = np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif)
             vs, vf, tg = [], [], []
             idx = -1
             with torch.no_grad():
@@ -448,14 +448,14 @@ if __name__ == '__main__':
                         vs = torch.sign(torch.stack(vs).flatten(start_dim=0, end_dim=1) + 1e-16)
                         vf = torch.sign(torch.stack(vf).flatten(start_dim=0, end_dim=1) + 1e-16)
                         tg = torch.stack(tg).flatten(start_dim=0, end_dim=1)
-                        Ptp01[idx], Ptp05[idx], AUC[idx] = acc_authentication(model, logisticReg, H0_id_t, H0_data_t,
+                        Ptp01[idx], Ptp05[idx], Ptp1[idx], AUC[idx] = acc_authentication(model, logisticReg, H0_id_t, H0_data_t,
                                                                           tg, vf.size(0), vs, vf, m_set, n_batch_verif)
                         vs, vf, tg = [], [], []
             avg_loss = tot_loss / n_batches
             avg_acc = tot_acc / n_batches
             print('avg_loss: %.4f' % avg_loss, 'avg_acc: %.3f' % avg_acc,
                   ' --->ptp01: %.3f' % np.mean(Ptp01), 'ptp05: %.3f' % np.mean(Ptp05)
-                  , ' auc: %.3f' % np.mean(AUC))
+                  , 'ptp1: %.3f' % np.mean(Ptp1), ' auc: %.3f' % np.mean(AUC))
             train_logs = {'loss': avg_loss, 'acc': avg_acc, 'ptp01': np.mean(Ptp01),
                           'ptp05': np.mean(Ptp05), 'auc': np.mean(AUC)}
             train_hist.add(logs=train_logs, epoch=epoch + 1)

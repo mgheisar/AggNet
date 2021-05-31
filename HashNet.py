@@ -267,6 +267,9 @@ def acc_authentication(model, logisticReg, H0_id, H0_data, target, n_classes, v_
     Pfp = 0.05
     tau = D0[int(Pfp * n_classes)]
     Ptp05 = np.count_nonzero(D1 > tau) / n_classes
+    Pfp = 0.1
+    tau = D0[int(Pfp * n_classes)]
+    Ptp1 = np.count_nonzero(D1 > tau) / n_classes
 
     tau = np.linspace(D1[0], D0[-1], 100)  # endpoint=True
     fpr = np.zeros(len(tau))
@@ -275,7 +278,7 @@ def acc_authentication(model, logisticReg, H0_id, H0_data, target, n_classes, v_
         fpr[kt] = np.count_nonzero(D0 > tau[kt]) / n_classes
         tpr[kt] = np.count_nonzero(D1 > tau[kt]) / n_classes
     auc = metrics.auc(fpr, tpr)
-    return Ptp01, Ptp05, auc
+    return Ptp01, Ptp05, Ptp1, auc
 
 
 class LogisticReg(nn.Module):

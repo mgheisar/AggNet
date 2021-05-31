@@ -5,9 +5,9 @@ dataroot : "/nfs/nas4/marzieh/marzieh/VGG_Face2/lfw/lfw-deepfunneled/"
 lr : 0.001 # 0.001 learning rate of 0.001 for pre-training and 0.0001 for fine-tuning
 n_epoch : 200
 run_name : 'Run01'
-exp_name : 'vgg2'
+exp_name : 'celeba' # vgg2, celeba
 num_workers : 4
-n_save_epoch : 1
+n_save_epoch : 1 
 n_classes : 32
 n_samples : 2
 n_batches_train : 0  # None

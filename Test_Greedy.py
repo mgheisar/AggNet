@@ -1,4 +1,5 @@
 # Test LFW on HashSetNet(Greedy)
+# --rn="Run010" --n_classes=32 --m=4 --n_b_valid=2000 --n_batch_verif=4
 import os
 import torchvision
 import torch
@@ -11,16 +12,16 @@ import argparse
 from vgg_face2 import VGG_Faces2
 import multiprocessing
 
-
-torch.manual_seed(0)
 if __name__ == '__main__':
+    torch.manual_seed(0)
+    np.random.seed(0)
     torch.multiprocessing.set_start_method('spawn', force=True)
     ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
     # print(ROOT_DIR)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(device)
     core_number = multiprocessing.cpu_count()
-    print('core number:', core_number)
+    # print('core number:', core_number)
     #  --------------------------------------------------------------------------------------
     # Arguments
     #  --------------------------------------------------------------------------------------
@@ -71,7 +72,6 @@ if __name__ == '__main__':
     lossFun = args.loss
     pooling = args.pooling
     n_classes = args.n_classes
-
     if lossFun == 'loss_bc':
         from loss import loss_bc as loss_fn
     elif lossFun == 'loss_auc_max_v1':
@@ -83,48 +83,51 @@ if __name__ == '__main__':
         n_batches_valid = None
     if upper_vgg == 0:
         upper_vgg = None
-    print(pooling)
     #  --------------------------------------------------------------------------------------
-    # Load train dataset
+    # Load datasets
     #  --------------------------------------------------------------------------------------
-    training_dataset_root = '/nfs/nas4/marzieh/marzieh/VGG_Face2/train/'
-    dataset_train = VGG_Faces2(training_dataset_root, split='train', upper=upper_vgg)
-    exp_name = 'lfw'
-    if exp_name == 'lfw':
-        mean_rgb = (0.485, 0.456, 0.406)  # (0.5, 0.5, 0.5)
-        std_rgb = (0.229, 0.224, 0.225)  # (0.5, 0.5, 0.5)
-        dataset_validation = torchvision.datasets.ImageFolder(root=dataroot,
-                                                              transform=torchvision.transforms.Compose([
-                                                                  torchvision.transforms.Resize(256),
-                                                                  torchvision.transforms.CenterCrop(224),
-                                                                  torchvision.transforms.ToTensor(),
-                                                                  torchvision.transforms.Normalize(mean=mean_rgb, std=std_rgb)]
-                                                                  ))
-    elif exp_name == 'vgg2':
+    print('1')
+    exp_name = 'celeba'  # 'vgg2'
+    test_name = 'lfw'
+    mean_rgb = (0.485, 0.456, 0.406)  # (0.5, 0.5, 0.5) (0.485, 0.456, 0.406)
+    std_rgb = (0.229, 0.224, 0.225)  # (0.5, 0.5, 0.5) (0.229, 0.224, 0.225)
+    preprocess = torchvision.transforms.Compose([
+        torchvision.transforms.Resize(256),
+        torchvision.transforms.CenterCrop(224),
+        torchvision.transforms.ToTensor(),
+        torchvision.transforms.Normalize(mean=mean_rgb, std=std_rgb),
+    ])
+    if test_name == 'celeba':
+        dataroot = '/nfs/nas4/marzieh/marzieh/celebA/'
+        dataset_validation = torchvision.datasets.CelebA(root=dataroot, split='test',
+                    target_type='identity', transform=preprocess)  # split='test' 'valid'
+    elif test_name == 'lfw':
+        dataroot = '/nfs/nas4/marzieh/marzieh/VGG_Face2/lfw/lfw-deepfunneled/'
+        dataset_validation = torchvision.datasets.ImageFolder(root=dataroot, transform=preprocess)
+    elif test_name == 'cfp':
+        dataroot = '/nfs/nas4/marzieh/marzieh/cfp/cfpf-dataset/Data/Images/'
+        dataset_validation = torchvision.datasets.ImageFolder(root=dataroot, transform=preprocess)
+    elif test_name == 'casia':
+        dataroot = '/nfs/nas4/marzieh/marzieh/CASIA/CASIA-WebFace/'
+        dataset_validation = torchvision.datasets.ImageFolder(root=dataroot, transform=preprocess)
+    elif test_name == 'vgg2':
         validation_dataset_root = '/nfs/nas4/marzieh/marzieh/VGG_Face2/test/'
         dataset_validation = VGG_Faces2(validation_dataset_root, split='validation', upper=upper_vgg)
+
     #  --------------------------------------------------------------------------------------
     # Batch Sampling: n_samples * n_samples
     #  --------------------------------------------------------------------------------------
+    print('2')
     batch_size = n_classes * n_samples
     batch_sampler_v = BalanceBatchSampler(dataset=dataset_validation, n_classes=n_classes, n_samples=n_samples,
-                                        n_batches_epoch=n_batches_valid)
+                                          n_batches_epoch=n_batches_valid)
     validation_loader = torch.utils.data.DataLoader(dataset_validation, batch_sampler=batch_sampler_v,
                                                     num_workers=num_workers)
-    batch_sampler_H0t = BalanceBatchSampler(dataset=dataset_train, n_classes=n_classes * 2, n_samples=1,
-                                        n_batches_epoch=n_batch_verif)
-    H0_loader_train = torch.utils.data.DataLoader(dataset_train, batch_sampler=batch_sampler_H0t,
-                                            num_workers=num_workers)
-    # batch_sampler_H0v = BalanceBatchSampler(dataset=dataset_validation, n_classes=n_classes * 2, n_samples=1,
-    #                                     n_batches_epoch=n_batch_verif)
-    # H0_loader_validation = torch.utils.data.DataLoader(dataset_validation, batch_sampler=batch_sampler_H0v,
-    #                                                    num_workers=num_workers)
-    batch_sampler_H0v = BalanceBatchSampler(dataset=dataset_train, n_classes=n_classes * 2, n_samples=1,
+    batch_sampler_H0v = BalanceBatchSampler(dataset=dataset_validation, n_classes=n_classes * 2, n_samples=1,
                                             n_batches_epoch=n_batch_verif)
-    H0_loader_validation = torch.utils.data.DataLoader(dataset_train, batch_sampler=batch_sampler_H0v,
-                                                  num_workers=num_workers)
+    H0_loader_validation = torch.utils.data.DataLoader(dataset_validation, batch_sampler=batch_sampler_H0v,
+                                                       num_workers=num_workers)
     H0_id_v, H0_data_v = [], []
-    dataloader_H0_t = iter(H0_loader_train)
     dataloader_H0_v = iter(H0_loader_validation)
     for i in range(n_batch_verif):
         data = next(dataloader_H0_v)
@@ -133,6 +136,7 @@ if __name__ == '__main__':
     #  --------------------------------------------------------------------------------------
     # Model Definitions
     #  --------------------------------------------------------------------------------------
+    print('3')
     model = HashSetNet(base_model_architecture=model_type, num_clusters=num_clusters, vset_dim=vlad_dim,
                        vlad_v2=vlad_v2, pooling=pooling)
     logisticReg = LogisticReg()
@@ -143,22 +147,29 @@ if __name__ == '__main__':
     #  --------------------------------------------------------------------------------------
     # reporter.monitor = 'auc' or 'acc' ????????????
     reporter = Reporter(ckpt_root=os.path.join(ROOT_DIR, 'ckpt'),
-                        exp='vgg2', monitor='acc')
+                        exp=exp_name, monitor='acc')
     best_model_filename = reporter.select_best(run=run_name).selected_ckpt
+    # print(best_model_filename)
     model.load_state_dict(torch.load(best_model_filename)['model_state_dict'])
     reporter = Reporter(ckpt_root=os.path.join(ROOT_DIR, 'ckpt'),
-                        exp='vgg2', monitor='acc')
+                        exp=exp_name, monitor='acc')
     best_model_filename = reporter.select_best(run=run_name + '_lr').selected_ckpt
+    # print(best_model_filename)
     logisticReg.load_state_dict(torch.load(best_model_filename)['model_state_dict'])
     # model.eval()
     # logisticReg.eval()
     tot_loss, tot_acc = 0, 0
     n_batches = len(validation_loader)
-    Ptp01, Ptp05, AUC = np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif)
+    Ptp01, Ptp05, Ptp1, AUC = np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif), np.zeros(
+        n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif)
     vs, vf, tg = [], [], []
     idx = -1
+    print('4')
     with torch.no_grad():
-        for batch_idx, (data, target) in enumerate(validation_loader):
+        for batch_idx, value in enumerate(validation_loader):
+            print('5')
+            data = value[0]
+            target = value[1]
             data_set = data[np.arange(0, batch_size, n_samples)].to(device)
             data_query = data[np.arange(1, batch_size, n_samples)].to(device)
             v_set, code_set = model(data_set, m=m_set)  # single vector per set
@@ -181,11 +192,12 @@ if __name__ == '__main__':
                 vs = torch.stack(vs).flatten(start_dim=0, end_dim=1)
                 vf = torch.stack(vf).flatten(start_dim=0, end_dim=1)
                 tg = torch.stack(tg).flatten(start_dim=0, end_dim=1)
-                Ptp01[idx], Ptp05[idx], AUC[idx] = acc_authentication(model, logisticReg, H0_id_v, H0_data_v,
-                                                                  tg, vf.size(0), vs, vf, m_set, n_batch_verif)
+                Ptp01[idx], Ptp05[idx], Ptp1[idx], AUC[idx] = acc_authentication(model, logisticReg, H0_id_v, H0_data_v,
+                                                                                 tg, vf.size(0), vs, vf, m_set,
+                                                                                 n_batch_verif)
                 vs, vf, tg = [], [], []
     avg_loss = tot_loss / n_batches
     avg_acc = tot_acc / n_batches
     print('Evaluation --->avg_loss: %.3f' % avg_loss, 'avg_acc: %.3f' % avg_acc,
           ' ptp01: %.3f' % np.mean(Ptp01), 'ptp05: %.3f' % np.mean(Ptp05)
-          , ' auc: %.3f' % np.mean(AUC))
+          , 'ptp1: %.3f' % np.mean(Ptp1), ' auc: %.3f' % np.mean(AUC))

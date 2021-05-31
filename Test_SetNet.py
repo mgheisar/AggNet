@@ -87,11 +87,8 @@ if __name__ == '__main__':
     if upper_vgg == 0:
         upper_vgg = None
     #  --------------------------------------------------------------------------------------
-    # Load train dataset
+    # Load datasets
     #  --------------------------------------------------------------------------------------
-    # VGG Face2
-    training_dataset_root = '/nfs/nas4/marzieh/marzieh/VGG_Face2/train/'
-    dataset_train = VGG_Faces2(training_dataset_root, split='train', upper=upper_vgg)
     exp_name = 'lfw'
     if exp_name == 'lfw':
         mean_rgb = (0.485, 0.456, 0.406)  # (0.5, 0.5, 0.5)
@@ -115,20 +112,11 @@ if __name__ == '__main__':
                                         n_batches_epoch=n_batches_valid)
     validation_loader = torch.utils.data.DataLoader(dataset_validation, batch_sampler=batch_sampler_v,
                                                     num_workers=num_workers)
-    batch_sampler_H0t = BalanceBatchSampler(dataset=dataset_train, n_classes=n_classes * 2, n_samples=1,
-                                        n_batches_epoch=n_batch_verif)
-    H0_loader_train = torch.utils.data.DataLoader(dataset_train, batch_sampler=batch_sampler_H0t,
-                                            num_workers=num_workers)
-    # batch_sampler_H0v = BalanceBatchSampler(dataset=dataset_validation, n_classes=n_classes * 2, n_samples=1,
-    #                                     n_batches_epoch=n_batch_verif)
-    # H0_loader_validation = torch.utils.data.DataLoader(dataset_validation, batch_sampler=batch_sampler_H0v,
-    #                                                    num_workers=num_workers)
-    batch_sampler_H0v = BalanceBatchSampler(dataset=dataset_train, n_classes=n_classes * 2, n_samples=1,
+    batch_sampler_H0v = BalanceBatchSampler(dataset=dataset_validation, n_classes=n_classes * 2, n_samples=1,
                                             n_batches_epoch=n_batch_verif)
-    H0_loader_validation = torch.utils.data.DataLoader(dataset_train, batch_sampler=batch_sampler_H0v,
+    H0_loader_validation = torch.utils.data.DataLoader(dataset_validation, batch_sampler=batch_sampler_H0v,
                                                   num_workers=num_workers)
     H0_id_v, H0_data_v = [], []
-    dataloader_H0_t = iter(H0_loader_train)
     dataloader_H0_v = iter(H0_loader_validation)
     for i in range(n_batch_verif):
         data = next(dataloader_H0_v)
@@ -148,17 +136,19 @@ if __name__ == '__main__':
     reporter = Reporter(ckpt_root=os.path.join(ROOT_DIR, 'ckpt'),
                         exp='vgg2', monitor='acc')  # monitor='auc'
     best_model_filename = reporter.select_best(run=run_name).selected_ckpt
+    print(best_model_filename)
     model.load_state_dict(torch.load(best_model_filename)['model_state_dict'])
     reporter = Reporter(ckpt_root=os.path.join(ROOT_DIR, 'ckpt'),
                         exp='vgg2', monitor='acc')  # monitor='auc'
     best_model_filename = reporter.select_best(run=run_name + '_lr').selected_ckpt
+    print(best_model_filename)
     logisticReg.load_state_dict(torch.load(best_model_filename)['model_state_dict'])
     # ---------  Test-----------------
     # model.eval()
     # logisticReg.eval()
     tot_loss, tot_acc = 0, 0
     n_batches = len(validation_loader)
-    Ptp01, Ptp05, AUC = np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif)
+    Ptp01, Ptp05, Ptp1, AUC = np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif), np.zeros(n_batches // n_batch_verif)
     vs, vf, tg = [], [], []
     idx = -1
     with torch.no_grad():
@@ -183,13 +173,13 @@ if __name__ == '__main__':
                 vf = torch.stack(vf).flatten(start_dim=0, end_dim=1)
                 tg = torch.stack(tg).flatten(start_dim=0, end_dim=1)
 
-                Ptp01[idx], Ptp05[idx], AUC[idx] = acc_authentication(model, logisticReg, H0_id_v, H0_data_v,
+                Ptp01[idx], Ptp05[idx], Ptp1[idx], AUC[idx] = acc_authentication(model, logisticReg, H0_id_v, H0_data_v,
                                                                   tg, vf.size(0), vs, vf, m_set, n_batch_verif)
                 vs, vf, tg = [], [], []
     avg_loss = tot_loss / n_batches
     avg_acc = tot_acc / n_batches
     print('Evaluation--->avg_loss: %.3f' % avg_loss, 'avg_acc: %.3f' % avg_acc,
           ' ptp01: %.3f' % np.mean(Ptp01), 'ptp05: %.3f' % np.mean(Ptp05)
-          , ' auc: %.3f' % np.mean(AUC))
+          , 'ptp1: %.3f' % np.mean(Ptp1), ' auc: %.3f' % np.mean(AUC))
 
 # avg_loss: 0.033 avg_acc: 0.960  ptp01: 0.728 ptp05: 0.919  auc: 0.980

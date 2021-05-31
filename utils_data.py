@@ -14,13 +14,17 @@ class BalanceBatchSampler(BatchSampler):
     """
 
     def __init__(self, dataset, n_classes, n_samples, n_batches_epoch=None):
+        # np.random.seed(0)
         try:
             self.labels = dataset.labels  # labels
         except AttributeError:
             try:
                 self.labels = dataset.targets  # labels
             except AttributeError:
-                self.labels = [img[1]for img in dataset.imgs]
+                try:
+                    self.labels = [img[1]for img in dataset.imgs]
+                except AttributeError:
+                    self.labels = dataset.identity
         labels_array = np.array(list(self.labels))
         self.labels_set = list(set(labels_array))
         self.labels_set = [label for label in self.labels_set if len(np.where(labels_array == label)[0]) >= n_samples]
@@ -37,7 +41,7 @@ class BalanceBatchSampler(BatchSampler):
         self.n_batches_epoch = n_batches_epoch
         if self.n_batches_epoch is None:
             self.n_batches_epoch = self.new_dataset_size // self.batch_size  # len(self.dataset)
-        print('n_batches_epoch', self.n_batches_epoch)
+        # print('n_batches_epoch', self.n_batches_epoch)
 
     def __iter__(self):
         self.used_label_indices_count = {label: 0 for label in self.labels_set}  # (3)
@@ -45,7 +49,7 @@ class BalanceBatchSampler(BatchSampler):
         self.count = 0
         unselected_classes = self.labels_set.copy()
         n_classes = self.n_classes
-        np.random.seed(0)  # (1)To have epochs with the same batch of identities
+        # np.random.seed(0)  # (1)To have epochs with the same batch of identities
         for i in range(self.n_batches_epoch):
             # classes = np.random.choice(self.labels_set, n_classes, replace=False)
             # # classes = self.labels_set[int(self.count / self.n_classes):int(self.count / self.n_classes + self.n_classes)]
